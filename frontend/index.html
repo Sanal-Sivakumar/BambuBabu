@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BambuBabu 🐼 — 3D Print Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <!-- ── Sidebar ───────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-icon">🐼</span>
+      <div>
+        <div class="brand-name">BambuBabu</div>
+        <div class="brand-sub">Print Automation</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-btn active" data-tab="upload">
+        <span class="nav-icon">📤</span> Upload
+      </button>
+      <button class="nav-btn" data-tab="queue">
+        <span class="nav-icon">📋</span> Queue
+        <span class="badge" id="badge-queue">0</span>
+      </button>
+      <button class="nav-btn" data-tab="printers">
+        <span class="nav-icon">🖨️</span> Printers
+      </button>
+      <button class="nav-btn" data-tab="logs">
+        <span class="nav-icon">📜</span> Logs
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="system-status">
+        <div class="dot" id="api-dot"></div>
+        <span id="api-status-text">Connecting…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ─────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- ══ UPLOAD TAB ══════════════════════════════════════ -->
+    <section class="tab active" id="tab-upload">
+      <div class="page-header">
+        <h1>Upload a Print Job</h1>
+        <p>Upload your STL file — BambuBabu will handle everything automatically.</p>
+      </div>
+
+      <div class="upload-grid">
+        <!-- Drop zone -->
+        <div class="card upload-card">
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-icon">🗂️</div>
+            <div class="drop-title">Drop your STL here</div>
+            <div class="drop-sub">or click to browse</div>
+            <input type="file" id="file-input" accept=".stl" hidden />
+          </div>
+          <div class="file-preview hidden" id="file-preview">
+            <div class="file-icon">📄</div>
+            <div class="file-info">
+              <div class="file-name" id="file-name-display"></div>
+              <div class="file-size" id="file-size-display"></div>
+            </div>
+            <button class="btn-icon" id="remove-file" title="Remove file">✕</button>
+          </div>
+        </div>
+
+        <!-- Form -->
+        <div class="card form-card">
+          <h2 class="card-title">Job Details</h2>
+          <form id="upload-form">
+            <div class="form-group">
+              <label for="user-name">Your Name *</label>
+              <input type="text" id="user-name" placeholder="e.g. Sanal Sivakumar" required />
+            </div>
+            <div class="form-group">
+              <label for="user-email">Your Email *</label>
+              <input type="email" id="user-email" placeholder="you@company.com" required />
+            </div>
+            <div class="form-group">
+              <label for="description">Description</label>
+              <textarea id="description" rows="3" placeholder="What are you printing? Any special notes?"></textarea>
+            </div>
+
+            <div class="algo-note">
+              <div class="algo-icon">🧠</div>
+              <div>
+                <strong>Smart Routing</strong>
+                <div>Simple jobs → A1 Mini (default). Complex/large jobs → P1S.</div>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="submit-btn" disabled>
+              <span class="btn-label">Submit Job</span>
+              <span class="btn-spinner hidden">⏳</span>
+            </button>
+          </form>
+
+          <div class="upload-result hidden" id="upload-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ QUEUE TAB ════════════════════════════════════════ -->
+    <section class="tab" id="tab-queue">
+      <div class="page-header">
+        <h1>Print Queue</h1>
+        <p>All jobs — live updating every 5 seconds.</p>
+        <div class="filter-row">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="pending">Pending</button>
+          <button class="filter-btn" data-filter="printing">Printing</button>
+          <button class="filter-btn" data-filter="completed">Completed</button>
+          <button class="filter-btn" data-filter="failed">Failed</button>
+        </div>
+      </div>
+
+      <div id="job-list" class="job-list">
+        <div class="empty-state">
+          <div>📭</div>
+          <div>No jobs yet. Upload your first STL!</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ PRINTERS TAB ═════════════════════════════════════ -->
+    <section class="tab" id="tab-printers">
+      <div class="page-header">
+        <h1>Printer Status</h1>
+        <p>Live status via MQTT — updates every 5 seconds.</p>
+      </div>
+
+      <div class="printer-grid" id="printer-grid">
+        <!-- Printer cards are injected by JS -->
+      </div>
+
+      <!-- Plate Cleared Alert -->
+      <div class="plate-alert hidden" id="plate-alert">
+        <div class="plate-alert-icon">🔔</div>
+        <div class="plate-alert-text">
+          A print has finished! Please remove the model from the plate,
+          then click <strong>Plate Cleared</strong> below.
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ LOGS TAB ══════════════════════════════════════════ -->
+    <section class="tab" id="tab-logs">
+      <div class="page-header">
+        <h1>System Logs</h1>
+        <p>Event log for all jobs and printer activity.</p>
+      </div>
+      <div class="card">
+        <div id="log-list" class="log-list">
+          <div class="empty-state">
+            <div>📜</div><div>No logs yet.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Toast container ──────────────────────────────────── -->
+  <div id="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
