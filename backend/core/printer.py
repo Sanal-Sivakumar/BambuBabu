@@ -150,24 +150,40 @@ class BambuPrinter:
         """Upload a .3mf file to the printer via implicit FTPS (port 990)."""
         log.info(f"[{self.printer_id}] Uploading {remote_filename} via FTPS …")
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx = ssl.create_default_context()
         ctx.check_hostname = False
-        ctx.verify_mode    = ssl.CERT_NONE
-
-        ftp = ImplicitFTP_TLS(context=ctx)
+        ctx.verify_mode = ssl.CERT_NONE
+        # Lower security level to allow Bambu's self-signed weak certs on newer Debian
         try:
-            ftp.connect(self.ip, FTP_PORT, timeout=30)
-            ftp.login("bblp", self.access_code)
-            ftp.prot_p()  # Encrypt data channel
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        except Exception:
+            pass
 
-            with open(local_path, "rb") as f:
-                ftp.storbinary(f"STOR /{remote_filename}", f)
+        max_retries = 3
+        for attempt in range(max_retries):
+            ftp = ImplicitFTP_TLS(context=ctx)
+            try:
+                ftp.connect(self.ip, FTP_PORT, timeout=60)
+                ftp.login("bblp", self.access_code)
+                ftp.set_pasv(True)
+                ftp.prot_p()  # Encrypt data channel
 
-            ftp.quit()
-            log.info(f"[{self.printer_id}] Upload complete: {remote_filename}")
-        except Exception as e:
-            log.error(f"[{self.printer_id}] FTP upload failed: {e}")
-            raise
+                with open(local_path, "rb") as f:
+                    ftp.storbinary(f"STOR /{remote_filename}", f)
+
+                ftp.quit()
+                log.info(f"[{self.printer_id}] Upload complete: {remote_filename}")
+                return
+            except Exception as e:
+                log.warning(f"[{self.printer_id}] FTP upload attempt {attempt + 1} failed: {e}")
+                try:
+                    ftp.close()
+                except:
+                    pass
+                if attempt == max_retries - 1:
+                    log.error(f"[{self.printer_id}] All FTP upload attempts failed.")
+                    raise
+                time.sleep(2)
 
     def request_status(self) -> None:
         """Request a full status push from the printer."""
