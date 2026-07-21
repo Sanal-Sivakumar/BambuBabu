@@ -3,7 +3,7 @@
  * Polls the FastAPI backend every 5 seconds and updates the UI.
  */
 
-const API = "http://localhost:8000";
+const API = "";
 let currentFilter = "all";
 let allJobs = [];
 let pollingInterval = null;
