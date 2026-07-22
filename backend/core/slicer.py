@@ -54,21 +54,31 @@ def slice_stl(stl_path: str | Path, printer_id: PrinterID,
 
 def _orca_slice(stl_path: Path, output_file: Path,
                 printer_id: PrinterID) -> tuple[Path, Optional[int]]:
-    profile = PRINTER_PROFILES.get(printer_id)
+    """Run OrcaSlicer headlessly via xvfb-run."""
 
+    profile_cfg = PRINTER_PROFILES.get(printer_id)
+
+    # Base command — use xvfb-run so OrcaSlicer can open a virtual display
     cmd = [
+        "xvfb-run", "--auto-servernum", "--server-args=-screen 0 1024x768x24",
         settings.ORCA_SLICER_PATH,
-        "--slice",
-        "-g",                          # export gcode inside 3mf
+        "--slice", "0",
+        "-g",                           # embed G-code inside the 3MF
         "--output", str(output_file),
     ]
 
-    if profile and profile.exists():
-        cmd += ["--load", str(profile)]
+    # Load printer-specific config if it exists
+    if profile_cfg and profile_cfg.exists():
+        cmd += ["--load", str(profile_cfg)]
+    else:
+        log.warning(
+            f"No slicer profile found for {printer_id} at {profile_cfg}. "
+            "Slicing with OrcaSlicer defaults."
+        )
 
     cmd.append(str(stl_path))
 
-    log.info(f"Running OrcaSlicer: {' '.join(cmd)}")
+    log.info(f"Slicing with OrcaSlicer [{printer_id}]: {' '.join(cmd)}")
     t0 = time.time()
 
     try:
@@ -76,27 +86,40 @@ def _orca_slice(stl_path: Path, output_file: Path,
             cmd,
             capture_output=True,
             text=True,
-            timeout=600,  # 10 min max
+            timeout=600,   # 10 min max — Pi is slower than desktop
         )
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        if "xvfb-run" in str(exc):
+            raise RuntimeError(
+                "xvfb-run not found. On Pi run: sudo apt install xvfb -y"
+            )
         raise RuntimeError(
             f"OrcaSlicer not found at '{settings.ORCA_SLICER_PATH}'. "
-            "Set MOCK_SLICER=true in .env to skip real slicing."
+            "Check ORCA_SLICER_PATH in your .env file."
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("OrcaSlicer timed out after 10 minutes")
 
     elapsed = round(time.time() - t0, 1)
-    log.info(f"OrcaSlicer finished in {elapsed}s — exit={result.returncode}")
+    log.info(f"OrcaSlicer finished in {elapsed}s (exit={result.returncode})")
+
+    if result.stdout:
+        log.debug(f"OrcaSlicer stdout: {result.stdout[:300]}")
+    if result.stderr:
+        log.debug(f"OrcaSlicer stderr: {result.stderr[:300]}")
 
     if result.returncode != 0:
-        log.error(f"OrcaSlicer stderr: {result.stderr[:500]}")
-        raise RuntimeError(f"OrcaSlicer failed (exit {result.returncode}): {result.stderr[:200]}")
+        log.error(f"OrcaSlicer failed:\n{result.stderr[:600]}")
+        raise RuntimeError(
+            f"OrcaSlicer failed (exit {result.returncode}): {result.stderr[:200]}"
+        )
 
     if not output_file.exists():
-        raise RuntimeError(f"OrcaSlicer did not produce output file: {output_file}")
+        raise RuntimeError(f"OrcaSlicer did not produce output: {output_file}")
 
     estimated_minutes = _parse_estimated_time(result.stdout + result.stderr)
+    log.info(f"Sliced {stl_path.name} → {output_file.name} "
+             f"(~{estimated_minutes or '?'} min)")
     return output_file, estimated_minutes
 
 
