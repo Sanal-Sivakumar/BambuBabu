@@ -1,196 +1,178 @@
 # 🐼 BambuBabu — Automated 3D Print Management
 
-> Automates the full print pipeline for **Bambu Lab P1S** + **A1 Mini** via a Raspberry Pi 5.
-> Upload STL → auto-analyse → auto-slice → smart printer routing → auto-print → email notifications.
+> A self-hosted web platform for makerspace 3D print queuing, slicing, and automation for Bambu Lab printers.
 
 ---
 
-## ✨ Features
+## What Is BambuBabu?
 
-- **Drag-drop STL upload** via web dashboard
-- **Automatic complexity scoring** — P1S for complex jobs, A1 Mini for everything else (less power)
-- **Smallest job first** queue ordering
-- **OrcaSlicer headless slicing** with per-printer profiles
-- **MQTT + FTPS** printer control (Bambu LAN mode)
-- **Email notifications** — print started, completed, failed
-- **Plate Cleared gate** — next job only starts after admin confirms plate is clear
-- **Structured logging** — rotating log files + DB log entries
-- **Live web dashboard** — printer temps, progress, queue, logs
+BambuBabu is a Raspberry Pi-hosted web application that lets makerspace members submit STL files through a browser, automatically analyses the model complexity, selects the right printer, slices it, uploads it, and starts the print — all without any manual intervention.
+
+Members visit the web portal, fill in their name and email, upload their STL, and walk away. BambuBabu handles everything else.
 
 ---
 
-## 🏗️ Architecture
+## Hardware Setup
 
-```
-Browser (http://pi-ip:8000)
-    └── FastAPI (backend/main.py)
-         ├── SQLite DB (bambububu.db)
-         ├── Queue Processor (background thread)
-         │    ├── trimesh STL analyser
-         │    └── OrcaSlicer CLI (slicing)
-         └── MQTT + FTPS per printer
-              ├── Bambu Lab P1S    (192.168.10.116)
-              └── Bambu Lab A1 Mini (192.168.10.115)
-```
+| Device | Role | IP Address |
+|---|---|---|
+| Raspberry Pi 5 (4GB) | Runs BambuBabu server | `192.168.10.241` |
+| Bambu Lab P1S | Complex / large prints | `192.168.10.116` |
+| Bambu Lab A1 Mini | Simple / small prints | `192.168.10.115` |
+
+> **Requirement:** Both printers must have **LAN Mode** enabled (Settings → Network → LAN Mode on the printer touchscreen).
 
 ---
 
-## 🚀 Quick Start (Raspberry Pi)
+## Features
 
-### 1. Clone from GitHub
+- 📁 **STL Upload Portal** — Members upload files from any browser on the local network
+- 🧠 **Automatic Complexity Analysis** — Scores each model using geometry analysis (face count, volume, bounding box)
+- 🖨️ **Smart Printer Routing** — Simple models → A1 Mini, complex/large → P1S
+- ⚙️ **OrcaSlicer Integration** — Real slicing via OrcaSlicer 2.4.2 running headlessly on Pi
+- 📤 **Automatic FTP Upload** — Sends sliced `.3mf` files to the printer's SD card via FTPS
+- 🎬 **One-Click Print Start** — Issues the print command via MQTT after upload
+- 📊 **Live Dashboard** — Job queue, printer status, and logs all update every 5 seconds
+- 📧 **Email Notifications** — Members get notified when their print starts and completes
+
+---
+
+## Quick Start (Fresh Pi Setup)
+
+### 1. Clone the repo
 ```bash
-git clone https://github.com/yourusername/bambububu.git
-cd bambububu
+git clone https://github.com/Sanal-Sivakumar/BambuBabu.git
+cd BambuBabu
 ```
 
-### 2. Create virtual environment
+### 2. Create virtual environment and install dependencies
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Configure environment
+### 3. Create `.env` file
 ```bash
 cp .env.example .env
-nano .env   # fill in SMTP_PASSWORD (Gmail app password)
+nano .env   # fill in your printer IPs, serial numbers, access codes
 ```
 
-### 4. Enable LAN mode on both printers
-On each printer touchscreen:
-> Settings → Network → LAN Mode Locking → ON
+### 4. Install OrcaSlicer (for real slicing)
+```bash
+sudo apt install -y xvfb libwebkit2gtk-4.1-0
+sudo mkdir -p /opt/OrcaSlicer
+sudo wget -O /opt/OrcaSlicer/OrcaSlicer.AppImage \
+  "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.4.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.4.2.AppImage"
+sudo chmod +x /opt/OrcaSlicer/OrcaSlicer.AppImage
+```
 
-### 5. Run
+### 5. Run the server
 ```bash
 python -m backend.main
 ```
 
-Open `http://localhost:8000` in your browser.
+Visit `http://<pi-ip>:8000` in your browser.
 
 ---
 
-## 🧪 Testing Without Printers / OrcaSlicer
+## Environment Variables (`.env`)
 
-Set in `.env`:
 ```env
-MOCK_SLICER=true
-```
+# Printers
+P1S_IP=192.168.10.116
+P1S_SERIAL=01P09C552500636
+P1S_ACCESS_CODE=dd4b4e51
 
-This skips real slicing and uses a fake 30-minute estimate.
-MQTT connections will fail gracefully if printers are offline.
+A1_MINI_IP=192.168.10.115
+A1_MINI_SERIAL=0300DA610705389
+A1_MINI_ACCESS_CODE=c9fd869a
 
----
+# Slicer
+MOCK_SLICER=false
+ORCA_SLICER_PATH=/opt/OrcaSlicer/OrcaSlicer.AppImage
 
-## 📦 Install OrcaSlicer on Raspberry Pi 5
-
-```bash
-# Download the ARM64 AppImage from OrcaSlicer releases
-wget https://github.com/SoftFever/OrcaSlicer/releases/latest/download/OrcaSlicer_Linux_ARM64.AppImage
-chmod +x OrcaSlicer_Linux_ARM64.AppImage
-
-# Run once to extract
-./OrcaSlicer_Linux_ARM64.AppImage --appimage-extract
-
-# Move to /usr/local/bin
-sudo mv squashfs-root /opt/orca-slicer
-sudo ln -s /opt/orca-slicer/OrcaSlicer /usr/local/bin/OrcaSlicer
-
-# Update .env
-# ORCA_SLICER_PATH=/usr/local/bin/OrcaSlicer
+# Email (optional)
+SMTP_PASSWORD=your_gmail_app_password
+ADMIN_EMAIL=your@email.com
 ```
 
 ---
 
-## 🔁 Auto-start on Boot (systemd)
-
-```bash
-sudo nano /etc/systemd/system/bambububu.service
-```
-
-```ini
-[Unit]
-Description=BambuBabu 3D Print Automation
-After=network.target
-
-[Service]
-WorkingDirectory=/home/pi/bambububu
-ExecStart=/home/pi/bambububu/venv/bin/python -m backend.main
-Restart=always
-User=pi
-Environment=PYTHONUNBUFFERED=1
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable bambububu
-sudo systemctl start bambububu
-sudo systemctl status bambububu
-```
-
----
-
-## 🌿 Git Workflow
-
-```bash
-# On your dev machine — push changes
-git add .
-git commit -m "feat: your changes"
-git push origin main
-
-# On Pi — pull and restart
-git pull origin main
-sudo systemctl restart bambububu
-```
-
----
-
-## 📡 Printer Details
-
-| Printer | IP | Serial |
-|---|---|---|
-| Bambu Lab P1S | 192.168.10.116 | 01P09C552500636 |
-| Bambu Lab A1 Mini | 192.168.10.115 | 0300DA610705389 |
-
-> Access codes and credentials are in `.env` — never committed to git.
-
----
-
-## 📂 Project Structure
+## Project Structure
 
 ```
-bambububu/
+BambuBabu/
 ├── backend/
-│   ├── main.py             FastAPI app + lifespan
-│   ├── config.py           Settings (from .env)
-│   ├── api/                REST API routes
-│   ├── core/               Business logic
-│   │   ├── complexity.py   STL analyser
-│   │   ├── printer.py      Bambu MQTT + FTPS client
-│   │   ├── printer_manager.py  Manages both printers
-│   │   ├── slicer.py       OrcaSlicer CLI wrapper
-│   │   └── queue_processor.py  Background automation engine
-│   ├── db/                 SQLAlchemy models + CRUD
-│   ├── email/              Gmail SMTP notifications
-│   ├── storage/            STL uploads + sliced .3mf files
-│   └── logs/               Rotating log files
-├── frontend/               Web dashboard (served by FastAPI)
-├── config/slicer_profiles/ Per-printer OrcaSlicer profiles
-├── docs/                   Documentation
-├── .env.example            Config template
+│   ├── main.py              # FastAPI app entry point
+│   ├── config.py            # Settings from .env
+│   ├── api/
+│   │   ├── jobs.py          # Job queue API endpoints
+│   │   ├── printers.py      # Printer status API endpoints
+│   │   └── logs.py          # Application log API endpoints
+│   ├── core/
+│   │   ├── printer.py       # Bambu MQTT + FTPS client
+│   │   ├── printer_manager.py  # Manages both printers
+│   │   ├── queue_processor.py  # Background automation loop
+│   │   ├── slicer.py        # OrcaSlicer CLI wrapper
+│   │   ├── complexity.py    # STL analysis engine
+│   │   └── logger.py        # Structured logging
+│   ├── db/
+│   │   ├── models.py        # SQLAlchemy ORM models
+│   │   ├── crud.py          # Database operations
+│   │   └── session.py       # DB connection
+│   └── email/
+│       └── mailer.py        # Email notifications
+├── frontend/                # Static HTML/CSS/JS dashboard
+├── config/
+│   └── slicer_profiles/     # OrcaSlicer JSON profiles
 ├── requirements.txt
-└── README.md
+└── .env.example
 ```
 
 ---
 
-## 🔒 Security Notes
+## Daily Operations
 
-- Printer access codes and email passwords are in `.env` only — never committed
-- `.gitignore` excludes `.env`, log files, and uploaded STL files
-- No external internet access required — fully local LAN operation
+### Start the server
+```bash
+cd ~/Documents/BambuBabu
+source venv/bin/activate
+python -m backend.main
+```
+
+### Kill if port 8000 is busy
+```bash
+sudo fuser -k 8000/tcp
+```
+
+### Clear the job queue (all non-printing jobs)
+```bash
+python3 -c "
+import sys; sys.path.insert(0, '.')
+from backend.db.session import SessionLocal
+from backend.db.models import Job, LogEntry, PrinterState
+with SessionLocal() as db:
+    db.query(LogEntry).delete()
+    db.query(Job).delete()
+    for s in db.query(PrinterState).all():
+        s.plate_cleared = True
+        s.current_job_id = None
+    db.commit()
+    print('Queue cleared')
+"
+```
 
 ---
 
-*BambuBabu v1.0 — Raspberry Pi 5 + Bambu Lab P1S + A1 Mini*
+## Complexity Scoring
+
+BambuBabu scores each STL from 0–100:
+
+| Score Range | Printer | Reason |
+|---|---|---|
+| 0–49 | A1 Mini | Simple geometry, fits in 180×180×180mm |
+| 50–100 | P1S | Complex/large, needs 256×256×256mm build volume |
+
+Score factors: triangle count, volume, bounding box dimensions, aspect ratio.
+If a model is too large for both printers, the job is automatically rejected with an explanation.
