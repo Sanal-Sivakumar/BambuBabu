@@ -26,15 +26,20 @@ FTP_PORT  = 990
 MQTT_USER = "bblp"
 
 
-class ImplicitFTP_TLS(ftplib.FTP_TLS):
+class BambuFTP(ftplib.FTP_TLS):
     """
     FTP_TLS subclass that handles Bambu's implicit FTPS (port 990).
-    Python's built-in FTP_TLS only does explicit STARTTLS — this wraps
-    the socket in TLS immediately on connect, as Bambu requires.
+
+    Two key fixes over vanilla FTP_TLS:
+    1. Wraps the control socket in TLS *immediately* on connect (implicit mode).
+    2. Overrides makepasv() to force the data connection to the printer's
+       known IP — Bambu printers often return a different/unreachable IP in
+       the PASV response, which causes the data-channel read to time out.
     """
 
-    def __init__(self, context: ssl.SSLContext, *args, **kwargs):
+    def __init__(self, host_ip: str, context: ssl.SSLContext, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._force_host = host_ip
         self.context = context
         self._sock: Optional[ssl.SSLSocket] = None
 
@@ -62,6 +67,14 @@ class ImplicitFTP_TLS(ftplib.FTP_TLS):
         self.file = self.sock.makefile("r", encoding=self.encoding)
         self.welcome = self.getresp()
         return self.welcome
+
+    def makepasv(self):
+        """Force the data connection to use the printer's known IP.
+        Bambu printers sometimes return an unreachable IP in the PASV
+        response — we keep the port but always connect to the real IP.
+        """
+        _, port = super().makepasv()
+        return self._force_host, port
 
 
 class BambuPrinter:
@@ -161,12 +174,15 @@ class BambuPrinter:
 
         max_retries = 3
         for attempt in range(max_retries):
-            ftp = ImplicitFTP_TLS(context=ctx)
+            # BambuFTP overrides makepasv() to force the data channel to use
+            # self.ip — fixes "read timed out" caused by the printer returning
+            # a wrong/unreachable IP in its PASV response.
+            ftp = BambuFTP(host_ip=self.ip, context=ctx)
             try:
                 ftp.connect(self.ip, FTP_PORT, timeout=60)
                 ftp.login("bblp", self.access_code)
-                ftp.set_pasv(True)
                 ftp.prot_p()  # Encrypt data channel
+                ftp.set_pasv(True)
 
                 with open(local_path, "rb") as f:
                     ftp.storbinary(f"STOR /{remote_filename}", f)
@@ -178,12 +194,12 @@ class BambuPrinter:
                 log.warning(f"[{self.printer_id}] FTP upload attempt {attempt + 1} failed: {e}")
                 try:
                     ftp.close()
-                except:
+                except Exception:
                     pass
                 if attempt == max_retries - 1:
                     log.error(f"[{self.printer_id}] All FTP upload attempts failed.")
                     raise
-                time.sleep(2)
+                time.sleep(3)
 
     def request_status(self) -> None:
         """Request a full status push from the printer."""
