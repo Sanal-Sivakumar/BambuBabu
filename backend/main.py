@@ -13,7 +13,7 @@ from backend.core.logger import log
 from backend.db.session import init_db
 from backend.core.printer_manager import printer_manager
 from backend.core.queue_processor import QueueProcessor
-from backend.api import jobs, printers
+from backend.api import jobs, printers, logs
 
 # ── Queue processor (initialised after lifespan startup) ───────────────────
 _queue_processor: QueueProcessor | None = None
@@ -70,6 +70,7 @@ app.add_middleware(
 # ── API Routers ─────────────────────────────────────────────────────────────
 app.include_router(jobs.router)
 app.include_router(printers.router)
+app.include_router(logs.router)
 
 
 @app.get("/api/health")
