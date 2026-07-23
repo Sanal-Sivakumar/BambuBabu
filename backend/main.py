@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from ctypes.util import find_library
 from pathlib import Path
 from shutil import which
 
@@ -71,6 +72,8 @@ def health():
         and settings.SLICER_PROFILES_DIR.is_dir()
         and which("xvfb-run") is not None
         and which("xauth") is not None
+        and find_library("OpenGL") is not None
+        and find_library("GLU") is not None
     )
     checks = {
         "database": database_is_ready(),

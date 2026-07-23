@@ -80,7 +80,7 @@ The installer:
 - installs a hardened `bambubabu.service` unit without starting it;
 - copies `.env.example` to `.env` with mode `0600` only when `.env` does not exist.
 
-The headless slicer prerequisites include both `xvfb` and its `xauth` helper; the health endpoint does not report slicing ready unless both are installed.
+The headless slicer prerequisites include `xvfb`, its `xauth` helper, and the `libopengl0`/`libglu1-mesa` runtime libraries; the health endpoint does not report slicing ready unless they are installed.
 
 4. On a trusted, isolated LAN, capture each printer identity immediately after rotating its access code:
 

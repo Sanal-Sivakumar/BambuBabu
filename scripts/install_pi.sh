@@ -38,7 +38,7 @@ fi
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   ca-certificates curl openssl python3 python3-pip python3-venv xvfb xauth \
-  libwebkit2gtk-4.1-0
+  libopengl0 libglu1-mesa libwebkit2gtk-4.1-0
 
 python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 if [[ "${python_version}" != "3.12" ]]; then

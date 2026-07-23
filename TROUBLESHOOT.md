@@ -163,6 +163,7 @@ test -x /opt/bambubabu/orca/appimage-root/AppRun
 test -d /opt/bambubabu/orca/appimage-root/resources/profiles/BBL
 command -v xvfb-run
 command -v xauth
+ldconfig -p | grep -E 'libOpenGL\.so\.0|libGLU\.so\.1'
 ```
 
 Re-run `scripts/install_pi.sh` if the versioned installation is incomplete. The installer verifies the official ARM64 artifact checksum before extraction.
@@ -170,7 +171,7 @@ Re-run `scripts/install_pi.sh` if the versioned installation is incomplete. The 
 On minimal Ubuntu images, install both headless display helpers explicitly:
 
 ```bash
-sudo apt-get install -y xvfb xauth
+sudo apt-get install -y xvfb xauth libopengl0 libglu1-mesa
 sudo systemctl restart bambubabu
 ```
 

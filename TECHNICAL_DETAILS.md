@@ -147,7 +147,7 @@ After verifying Ubuntu 24.04 ARM64 and Python 3.12, the production installer dow
 | P1S | `Bambu Lab P1S 0.4 nozzle.json` | `0.20mm Standard @BBL P1P.json` | `Bambu PLA Basic @base.json` |
 | A1 Mini | `Bambu Lab A1 mini 0.4 nozzle.json` | `0.20mm Standard @BBL A1M.json` | `Bambu PLA Basic @BBL A1M.json` |
 
-Orca runs through `xvfb-run`, with an argument array, `shell=False`, captured output, and a ten-minute timeout. Output is named `<job-uuid>-<printer>.3mf`, which prevents a fallback slice from being mistaken for the preferred-printer slice. Missing profiles or output fail closed.
+Orca runs through `xvfb-run`, with an argument array, `shell=False`, captured output, and a ten-minute timeout. Ubuntu also needs `xauth`, `libopengl0`, and `libglu1-mesa`; startup and health validate these dependencies. Output is named `<job-uuid>-<printer>.3mf`, which prevents a fallback slice from being mistaken for the preferred-printer slice. Missing profiles, runtime dependencies, or output fail closed.
 
 `MOCK_SLICER=true` only copies the STL and is for orchestration tests. Startup forbids mock slicing when live printer integration is enabled.
 

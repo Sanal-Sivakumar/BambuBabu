@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from ctypes.util import find_library
 from ipaddress import ip_address
 from pathlib import Path
 from shutil import which
@@ -217,6 +218,10 @@ class Settings(BaseSettings):
                 raise RuntimeError("xvfb-run is required for headless slicing")
             if which("xauth") is None:
                 raise RuntimeError("xauth is required by xvfb-run for headless slicing")
+            if find_library("OpenGL") is None or find_library("GLU") is None:
+                raise RuntimeError(
+                    "libopengl0 and libglu1-mesa are required for headless OrcaSlicer"
+                )
 
 
 settings = Settings()
