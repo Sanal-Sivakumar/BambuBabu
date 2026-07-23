@@ -175,47 +175,38 @@ class BambuPrinter:
         log.info(f"[{self.printer_id}] Stop command sent")
 
     def upload_file(self, local_path: str, remote_filename: str) -> None:
-        """Upload a .3mf file to the printer via implicit FTPS (port 990)."""
-        log.info(f"[{self.printer_id}] Uploading {remote_filename} via FTPS …")
-
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
-        # Lower security level to allow Bambu's self-signed weak certs on newer Debian
-        try:
-            ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-        except Exception:
-            pass
+        """Upload a .3mf file to the printer via curl (implicit FTPS on port 990)."""
+        log.info(f"[{self.printer_id}] Uploading {remote_filename} via curl (FTPS) …")
+        
+        import subprocess
+        url = f"ftps://{self.ip}:990/{remote_filename}"
+        cmd = [
+            "curl",
+            "--insecure",         # Ignore self-signed cert
+            "--ftp-pasv",         # Passive mode
+            "--user", f"bblp:{self.access_code}",
+            "-T", local_path,
+            url
+        ]
 
         max_retries = 3
         for attempt in range(max_retries):
-            # BambuFTP overrides makepasv() to force the data channel to use
-            # self.ip — fixes "read timed out" caused by the printer returning
-            # a wrong/unreachable IP in its PASV response.
-            ftp = BambuFTP(host_ip=self.ip, context=ctx)
             try:
-                ftp.connect(self.ip, FTP_PORT, timeout=60)
-                ftp.login("bblp", self.access_code)
-                ftp.prot_p()  # Encrypt data channel
-                ftp.set_pasv(True)
-
-                with open(local_path, "rb") as f:
-                    ftp.storbinary(f"STOR /{remote_filename}", f)
-
-                ftp.quit()
-                log.info(f"[{self.printer_id}] Upload complete: {remote_filename}")
-                return
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if res.returncode == 0:
+                    log.info(f"[{self.printer_id}] Upload complete: {remote_filename}")
+                    return
+                else:
+                    log.warning(f"[{self.printer_id}] curl upload attempt {attempt + 1} failed: {res.stderr}")
+            except subprocess.TimeoutExpired:
+                log.warning(f"[{self.printer_id}] curl upload attempt {attempt + 1} timed out.")
             except Exception as e:
-                log.warning(f"[{self.printer_id}] FTP upload attempt {attempt + 1} failed: {e}")
-                try:
-                    ftp.close()
-                except Exception:
-                    pass
-                if attempt == max_retries - 1:
-                    log.error(f"[{self.printer_id}] All FTP upload attempts failed.")
-                    raise
-                time.sleep(3)
+                log.warning(f"[{self.printer_id}] curl upload attempt {attempt + 1} failed: {e}")
+            
+            if attempt == max_retries - 1:
+                log.error(f"[{self.printer_id}] All FTP upload attempts failed.")
+                raise RuntimeError(f"Failed to upload file to printer via FTPS.")
+            time.sleep(3)
 
     def request_status(self) -> None:
         """Request a full status push from the printer."""
