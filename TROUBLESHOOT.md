@@ -109,6 +109,8 @@ sudo journalctl -u bambubabu -f
 
 A certificate verification failure is a security stop. Re-capture only after physically confirming the printer and network.
 
+If the service repeatedly reports `CERTIFICATE_VERIFY_FAILED` with `self-signed certificate in chain`, the MQTT file was captured by an older script that kept only the leaf certificate. Update the checkout, move the old certificate aside, and recapture so the file contains the complete chain. Do not disable TLS verification.
+
 ## FTPS upload fails
 
 The service retries three times, then fails the job if no start command may have been sent. Check TCP 990, free space on the printer, and the FTPS pin.

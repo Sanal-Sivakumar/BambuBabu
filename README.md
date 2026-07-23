@@ -87,7 +87,7 @@ The installer:
 ./scripts/capture_printer_identity.sh <a1-mini-ip> /var/lib/bambubabu/certs/a1-mini-mqtt.pem
 ```
 
-Each command prints an FTPS value beginning with `sha256//`. Put the certificate path and printed pin into `.env`. This is trust-on-first-use: perform it only while you control the local network.
+Each command prints an FTPS value beginning with `sha256//` and saves the complete MQTT certificate chain. Put the certificate path and printed pin into `.env`. This is trust-on-first-use: perform it only while you control the local network.
 
 5. Edit `.env` and replace every `replace_me` value:
 

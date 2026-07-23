@@ -169,7 +169,7 @@ Sliced files upload to implicit FTPS port 990 with curl. The access code is pass
 
 Bambu LAN certificates are self-signed, so curl's normal CA/hostname validation cannot establish identity. The connection uses `--insecure` only together with the required `--pinnedpubkey sha256//...` SPKI pin. The pin authenticates the public key before credentials or file content are accepted. Transfer uses timeouts and up to three attempts.
 
-Identity capture is trust-on-first-use. `scripts/capture_printer_identity.sh` must be run on a controlled LAN immediately after credential rotation. A changed certificate or public key later causes a hard connection/transfer failure and requires physical re-verification.
+Identity capture is trust-on-first-use. `scripts/capture_printer_identity.sh` must be run on a controlled LAN immediately after credential rotation. It stores the complete MQTT certificate chain (device certificate plus its self-signed BBL CA) so Python can validate the presented chain. A changed certificate or public key later causes a hard connection/transfer failure and requires physical re-verification.
 
 ## 10. Printer slot and plate invariants
 

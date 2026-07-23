@@ -25,15 +25,24 @@ fi
 certificate_parent="$(dirname "${certificate_output}")"
 install -d -m 0750 "${certificate_parent}"
 certificate_temp="$(mktemp "${certificate_parent}/.mqtt-cert.XXXXXX")"
+certificate_raw="$(mktemp "${certificate_parent}/.mqtt-chain.XXXXXX")"
 cleanup() {
   rm -f "${certificate_temp}"
+  rm -f "${certificate_raw}"
 }
 trap cleanup EXIT
 
 # Run this only on a trusted, isolated LAN immediately after rotating the printer
-# access code. The captured identity is then enforced on every MQTT connection.
+# access code. Save the complete presented chain: the device certificate is signed
+# by the self-signed BBL CA, and Python must trust both certificates.
 timeout 20 openssl s_client -connect "${connect_host}:8883" -showcerts </dev/null 2>/dev/null \
-  | openssl x509 -outform PEM >"${certificate_temp}"
+  | awk '/-----BEGIN CERTIFICATE-----/{capture=1} capture{print} /-----END CERTIFICATE-----/{capture=0}' \
+  >"${certificate_raw}"
+if ! grep -q -- '-----BEGIN CERTIFICATE-----' "${certificate_raw}"; then
+  echo "Could not capture a certificate chain from MQTT port 8883." >&2
+  exit 1
+fi
+cp "${certificate_raw}" "${certificate_temp}"
 openssl x509 -in "${certificate_temp}" -noout -subject -issuer -fingerprint -sha256
 
 ftps_pin="$(
@@ -51,4 +60,5 @@ fi
 
 install -m 0640 "${certificate_temp}" "${certificate_output}"
 echo "MQTT certificate saved to: ${certificate_output}"
+echo "MQTT certificate chain entries: $(grep -c -- '-----BEGIN CERTIFICATE-----' "${certificate_output}")"
 echo "FTPS pin for .env: sha256//${ftps_pin}"
