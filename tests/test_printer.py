@@ -23,16 +23,22 @@ class PublishInfo:
         return True
 
 
+class UnacknowledgedPublishInfo(PublishInfo):
+    def is_published(self):
+        return False
+
+
 class FakeClient:
-    def __init__(self):
+    def __init__(self, publish_info=None):
         self.publishes = []
+        self.publish_info = publish_info or PublishInfo()
 
     def subscribe(self, *_args, **_kwargs):
         return (mqtt.MQTT_ERR_SUCCESS, 1)
 
     def publish(self, *args, **kwargs):
         self.publishes.append((args, kwargs))
-        return PublishInfo()
+        return self.publish_info
 
 
 def make_printer():
@@ -113,6 +119,17 @@ def test_published_but_unconfirmed_start_raises_attention_signal():
     printer.status = "idle"
     printer.gcode_state = "IDLE"
     with pytest.raises(PrintStartUnconfirmed):
+        printer.start_print_and_confirm("part.3mf", "job", timeout=0.01)
+
+
+def test_unacknowledged_start_publish_is_treated_as_ambiguous():
+    printer = make_printer()
+    printer._client = FakeClient(UnacknowledgedPublishInfo())
+    printer._connected = True
+    printer.status = "idle"
+    printer.gcode_state = "IDLE"
+
+    with pytest.raises(PrintStartUnconfirmed, match="may have reached"):
         printer.start_print_and_confirm("part.3mf", "job", timeout=0.01)
 
 

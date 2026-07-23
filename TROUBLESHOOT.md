@@ -131,6 +131,8 @@ Prefix the result with `sha256//` only after confirming it belongs to the intend
 
 `starting` is deliberately not equivalent to printing. BambuBabu waits for a newer MQTT report containing `PREPARE` or `RUNNING`. A timeout, service restart during handoff, or unexplained state requires physical inspection.
 
+A missing QoS 1 acknowledgement after the start publish is also ambiguous: the printer may already have accepted the command. The job must remain in `attention`; do not submit another job or clear the plate until the printer is physically inspected.
+
 Do not resubmit immediately. Check the printer screen and plate:
 
 - if the printer is running, leave the job/slot blocked and restore MQTT reporting;

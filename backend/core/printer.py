@@ -183,7 +183,19 @@ class BambuPrinter:
                 "use_ams": False,
             }
         }
-        self._publish(payload)
+        try:
+            self._publish(payload)
+        except RuntimeError as exc:
+            # A successful Paho publish call followed by a missing QoS 1 PUBACK
+            # is physically ambiguous: the printer may already be acting on the
+            # start request. Quarantine the slot rather than mark the job failed
+            # and risk a second dispatch.
+            if "not acknowledged" in str(exc):
+                raise PrintStartUnconfirmed(
+                    "MQTT start command may have reached the printer, but its QoS 1 "
+                    "acknowledgement was not received"
+                ) from exc
+            raise
         log.info(f"[{self.printer_id}] Start request published for {filename_3mf}")
 
         deadline = time.monotonic() + (

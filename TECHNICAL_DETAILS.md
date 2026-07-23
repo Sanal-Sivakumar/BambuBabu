@@ -161,7 +161,7 @@ Reconnect attempts stop and replace the previous Paho client before creating ano
 
 The non-mutating `pushall` status refresh publishes at QoS 0 because Bambu LAN brokers commonly do not acknowledge its QoS 1 form. Physical start commands publish to `device/<serial>/request` with QoS 1. A start publish fails unless the client is connected, the broker accepts it, and `wait_for_publish()` confirms it within `MQTT_PUBLISH_TIMEOUT_SECONDS`.
 
-Before a start command, the latest live state must be `idle`. The client records the MQTT report version, publishes `project_file`, then waits for a strictly newer report showing `PREPARE`, `RUNNING`, or mapped `printing`. `FAILED` raises a rejected-start error. Timeout raises an unconfirmed-start error. The queue maps ambiguous start errors to `attention`, never `printing`.
+Before a start command, the latest live state must be `idle`. The client records the MQTT report version, publishes `project_file`, then waits for a strictly newer report showing `PREPARE`, `RUNNING`, or mapped `printing`. `FAILED` raises a rejected-start error. A missing QoS 1 acknowledgement, a report timeout, or an interrupted handoff raises an unconfirmed-start error because the printer may already be acting on the command. The queue maps every ambiguous start error to `attention`, never `printing` or ordinary failure.
 
 ### FTPS
 
