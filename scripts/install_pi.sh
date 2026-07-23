@@ -16,6 +16,16 @@ if [[ "$(uname -m)" != "aarch64" ]]; then
   echo "This installer is pinned to the OrcaSlicer ARM64 asset; detected $(uname -m)." >&2
   exit 1
 fi
+if [[ ! -r /etc/os-release ]]; then
+  echo "Cannot verify the operating system; /etc/os-release is missing." >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source /etc/os-release
+if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
+  echo "This installer supports Ubuntu 24.04 ARM64; detected ${ID:-unknown} ${VERSION_ID:-unknown}." >&2
+  exit 1
+fi
 if [[ ! -f "${APP_DIR}/requirements.lock" || ! -f "${APP_DIR}/backend/main.py" ]]; then
   echo "APP_DIR is not a BambuBabu checkout: ${APP_DIR}" >&2
   exit 1
@@ -29,6 +39,12 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   ca-certificates curl openssl python3 python3-pip python3-venv xvfb \
   libwebkit2gtk-4.1-0
+
+python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+if [[ "${python_version}" != "3.12" ]]; then
+  echo "Ubuntu deployment requires Python 3.12; python3 is ${python_version}. Refusing an untested runtime." >&2
+  exit 1
+fi
 
 download_path="$(mktemp /tmp/orcaslicer.XXXXXX.AppImage)"
 extract_path="$(mktemp -d /tmp/orcaslicer-extract.XXXXXX)"

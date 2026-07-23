@@ -55,6 +55,7 @@ Then open `http://127.0.0.1:8000` on the client machine.
 - OrcaSlicer 2.4.2 ARM64, downloaded and verified by the installer
 
 The installer deliberately targets the official Ubuntu 24.04 ARM64 OrcaSlicer artifact. Raspberry Pi OS is not claimed as a verified target for that binary.
+It checks the OS, architecture, and Python minor version before downloading OrcaSlicer and refuses untested combinations.
 
 ## Fresh-Pi installation
 
@@ -110,14 +111,21 @@ The health response is `degraded` until the database, slicer, curl, and both liv
 
 ## Development without printers
 
-Create a Python 3.12 environment and install the development set:
+Create the exact Python 3.12 development environment and install the development set:
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install -r requirements-dev.txt --python .venv/bin/python
+./scripts/bootstrap_dev.sh
 .venv/bin/python -m pytest -o addopts='' -W error
 .venv/bin/python -m ruff check backend tests
 ```
+
+If an earlier command created `.venv` with Python 3.13 or 3.14, replace only that disposable environment:
+
+```bash
+./scripts/bootstrap_dev.sh --recreate
+```
+
+The bootstrap uses `uv` when available (including a managed 3.12 runtime), otherwise it uses an installed `python3.12`. `.python-version` also pins compatible tools to 3.12. Do not force PyO3 forward compatibility: this release and its lock file are validated on 3.12.
 
 For a local mock server, create a development `.env` with `PRINTERS_ENABLED=false`, `MOCK_SLICER=true`, loopback binding, and writable paths owned by your account. Mock slicing copies the STL to a fake `.3mf` and must never be paired with live printers; startup rejects that combination.
 

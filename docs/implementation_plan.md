@@ -33,7 +33,7 @@ Provide a safe local automation core for two Bambu Lab printers that can accept 
 | Restart reconciliation | Complete | safe CPU retry, handoff quarantine, printing ownership restore | controlled Pi restart tests |
 | Cancellation and plate races | Complete | cancellable-state CAS, retained files, plate/current-job invariants | physical workflow validation |
 | Cross-printer fallback | Complete | fit check, source-availability rule, reservation, target re-slice | real Orca outputs on both printers |
-| Portable slicing | Complete for installer | pinned artifact/checksum, extracted full BBL tree, printer-specific output | fresh Ubuntu 24.04 ARM64 run |
+| Portable slicing | Complete for installer | OS/architecture/Python guards, pinned artifact/checksum, extracted full BBL tree, printer-specific output | fresh Ubuntu 24.04 ARM64 run |
 | Logs API/UI | Complete | structured `/api/logs/all` array and escaped dashboard rendering | browser smoke test on Pi |
 | Upload/storage hardening | Complete | streaming limit, active/storage quotas, STL envelope validation, retention/orphans | tune quotas for production volume |
 | SQLite durability | Complete | WAL, busy timeout, online backup, rotation, restrictive modes | restore drill on target storage |
@@ -79,6 +79,7 @@ Physical rotation cannot be performed from this repository. Old codes must be ch
 - Pinned OrcaSlicer version, asset URL, and SHA-256.
 - Extracted the complete BBL profile inheritance tree and run the extracted `AppRun`.
 - Added a hash-locked, fully resolved production dependency file.
+- Added a Python 3.12 developer bootstrap, `.python-version`, and fail-fast Pi runtime checks.
 - Added an idempotent versioned `/opt/bambubabu/orca` layout.
 - Added a hardened systemd unit and separate writable runtime home.
 
@@ -128,6 +129,7 @@ uvx pip-audit -r requirements.lock
 uvx bandit -q -r backend -x tests
 bash -n scripts/*.sh
 scripts/check_secrets.sh
+test "$(.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.12
 ```
 
 Current result: tests pass, Ruff passes, no known dependency vulnerabilities are reported, Bandit reports no unsuppressed finding, shell syntax passes, and the tracked secret-pattern check passes.

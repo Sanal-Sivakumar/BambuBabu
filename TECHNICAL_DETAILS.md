@@ -61,6 +61,8 @@ Authentication is not implemented in this service by explicit project decision. 
 
 Numeric configuration is constrained by Pydantic: ports are valid, limits and intervals are positive, complexity is 0-100, and concurrent handoffs cannot exceed the two supported printers.
 
+The supported interpreter is CPython 3.12. `.python-version` declares that development constraint, `scripts/bootstrap_dev.sh` creates or validates a 3.12 `.venv`, and the Pi installer rejects an OS, architecture, or Python minor version outside Ubuntu 24.04 ARM64 with Python 3.12. This prevents dependency installation from silently falling back to unsupported native builds.
+
 ## 4. Job state model
 
 ### States
@@ -136,7 +138,7 @@ Queue order within a printer is shortest estimated time first, then submission t
 
 ## 8. Portable slicing
 
-The production installer downloads the pinned OrcaSlicer 2.4.2 Ubuntu 24.04 ARM64 AppImage, verifies its hard-coded SHA-256, and extracts it under `/opt/bambubabu/orca/2.4.2`. Runtime executes the extracted `AppRun`, avoiding a FUSE mount.
+After verifying Ubuntu 24.04 ARM64 and Python 3.12, the production installer downloads the pinned OrcaSlicer 2.4.2 Ubuntu 24.04 ARM64 AppImage, verifies its hard-coded SHA-256, and extracts it under `/opt/bambubabu/orca/2.4.2`. Runtime executes the extracted `AppRun`, avoiding a FUSE mount.
 
 `SLICER_PROFILES_DIR` points at the complete extracted `resources/profiles/BBL` tree. Bambu machine, process, and filament presets inherit from other JSON files, so copying three isolated files is insufficient. The selected presets are:
 

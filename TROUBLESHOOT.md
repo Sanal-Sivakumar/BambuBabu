@@ -242,6 +242,28 @@ uname -m
 
 Expected architecture is `aarch64`. `requirements.lock` contains exact versions and hashes; the installer uses pip `--require-hashes`. Do not replace it with an unpinned `pip install` during recovery. Regenerate the lock only as a reviewed dependency update, then run tests and `pip-audit`.
 
+### `pydantic-core`, PyO3, or NumPy tries to compile on Python 3.14
+
+This release supports Python 3.12. A message saying PyO3 supports at most Python 3.13 means the virtual environment was created with the wrong interpreter; `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` is not an approved workaround.
+
+From the repository root, replace only the disposable development environment and verify it before testing:
+
+```bash
+./scripts/bootstrap_dev.sh --recreate
+.venv/bin/python --version
+.venv/bin/python -m pytest -o addopts='' -W error
+.venv/bin/python -m ruff check backend tests
+```
+
+The version must begin with `Python 3.12`. On Ubuntu 24.04, install it with:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv
+```
+
+If that Ubuntu release does not package 3.12, install `uv` from its official documentation and rerun the bootstrap; it will install a managed 3.12 interpreter. Do not change the tested dependency pins merely to make a 3.14 environment install.
+
 ## Service cannot read a checkout under `/home`
 
 The unit uses `ProtectHome=read-only`, not inaccessible. If the checkout was moved after installation, reinstall the generated unit from the new path by rerunning `scripts/install_pi.sh`. Confirm `WorkingDirectory` and `ExecStart`:
@@ -257,6 +279,7 @@ Runtime writes must remain under `/var/lib/bambubabu`; the application checkout 
 ```bash
 scripts/check_secrets.sh
 bash -n scripts/*.sh
+test "$(.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.12
 .venv/bin/python -m ruff check backend tests
 .venv/bin/python -m pytest -o addopts='' -W error
 curl -s http://127.0.0.1:8000/api/health
