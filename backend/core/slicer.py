@@ -24,22 +24,23 @@ from backend.db.models import PrinterID
 
 log = get_logger("bambububu.slicer")
 
-# Slicer profile directory (relative to project root)
-PROFILES_DIR = Path(__file__).resolve().parents[2] / "config" / "slicer_profiles"
+# Slicer profile directory (where AppImage was extracted)
+# OrcaSlicer JSON profiles use inheritance (e.g., inheriting from BBL.json).
+# If we copy just 3 files, they break. We MUST point to the extracted directory!
+PROFILES_DIR = Path("/home/tinkerspace/orca_extract/resources/profiles/BBL")
 
 # Each printer has 3 profile files: machine + process + filament
-# OrcaSlicer loads them with --load-settings and --load-filaments
 MACHINE_PROFILES = {
-    PrinterID.P1S:     PROFILES_DIR / "p1s_machine.json",
-    PrinterID.A1_MINI: PROFILES_DIR / "a1mini_machine.json",
+    PrinterID.P1S:     PROFILES_DIR / "machine/Bambu Lab P1S 0.4 nozzle.json",
+    PrinterID.A1_MINI: PROFILES_DIR / "machine/Bambu Lab A1 mini 0.4 nozzle.json",
 }
 PROCESS_PROFILES = {
-    PrinterID.P1S:     PROFILES_DIR / "p1s_process.json",
-    PrinterID.A1_MINI: PROFILES_DIR / "a1mini_process.json",
+    PrinterID.P1S:     PROFILES_DIR / "process/0.20mm Standard @BBL P1P.json",
+    PrinterID.A1_MINI: PROFILES_DIR / "process/0.20mm Standard @BBL A1M.json",
 }
 FILAMENT_PROFILES = {
-    PrinterID.P1S:     PROFILES_DIR / "p1s_filament.json",
-    PrinterID.A1_MINI: PROFILES_DIR / "a1mini_filament.json",
+    PrinterID.P1S:     PROFILES_DIR / "filament/Bambu PLA Basic @base.json",
+    PrinterID.A1_MINI: PROFILES_DIR / "filament/Bambu PLA Basic @BBL A1M.json",
 }
 
 
