@@ -112,6 +112,11 @@ def _orca_slice(
 
     log.info(f"[{printer_id}] OrcaSlicer command prepared with configured profiles")
     t0 = time.time()
+    # OrcaSlicer writes numbered diagnostic files relative to its current
+    # directory. The systemd unit intentionally makes the application checkout
+    # read-only, so run it from a dedicated writable runtime/log directory.
+    work_dir = settings.LOG_DIR / "orca"
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         # Fixed executable and separated argv; no shell interpretation occurs.
@@ -120,6 +125,7 @@ def _orca_slice(
             shell=False,
             capture_output=True,
             text=True,
+            cwd=str(work_dir),
             timeout=600,  # 10 min max — Pi 5 is slower than desktop
         )
     except FileNotFoundError as exc:

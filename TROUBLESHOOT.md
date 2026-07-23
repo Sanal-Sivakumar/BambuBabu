@@ -177,6 +177,8 @@ sudo systemctl restart bambubabu
 
 If Orca reports `XDG_RUNTIME_DIR is invalid or not set`, the unit is from an older checkout. Update and reinstall the generated unit, or add a systemd override that supplies a private directory; do not point `XDG_RUNTIME_DIR` at a shared `/tmp` path.
 
+If Orca reports `Failed to open file for writing` under the application checkout, update the service to a revision that runs Orca from its writable runtime log directory. Do not make the checkout writable to the service.
+
 ## Orca reports missing preset/inheritance errors
 
 Do not copy only the machine/process/filament JSON files. Orca presets inherit from base files. `SLICER_PROFILES_DIR` must point to the complete extracted `BBL` tree.

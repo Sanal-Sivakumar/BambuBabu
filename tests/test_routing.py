@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from backend.config import settings
 from backend.core import complexity, slicer
 from backend.db.models import PrinterID
@@ -58,3 +60,39 @@ def test_mock_slice_names_output_for_target_printer(tmp_path, monkeypatch):
     assert output.name == "job-id-a1_mini.3mf"
     assert output.read_bytes() == source.read_bytes()
     assert estimate == 30
+
+
+def test_orca_slice_runs_from_writable_runtime_log_directory(tmp_path, monkeypatch):
+    source = tmp_path / "job-id.stl"
+    source.write_bytes(binary_stl())
+    profiles = tmp_path / "profiles"
+    for path in (
+        profiles / "machine/Bambu Lab A1 mini 0.4 nozzle.json",
+        profiles / "process/0.20mm Standard @BBL A1M.json",
+        profiles / "filament/Bambu PLA Basic @BBL A1M.json",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+    app_run = tmp_path / "AppRun"
+    app_run.write_text("placeholder")
+    captured = {}
+
+    class Result:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["cwd"] = kwargs["cwd"]
+        output = command[command.index("--export-3mf") + 1]
+        Path(output).write_bytes(b"sliced")
+        return Result()
+
+    monkeypatch.setattr(settings, "MOCK_SLICER", False)
+    monkeypatch.setattr(settings, "SLICER_PROFILES_DIR", profiles)
+    monkeypatch.setattr(settings, "ORCA_SLICER_PATH", app_run)
+    monkeypatch.setattr("backend.core.slicer.subprocess.run", fake_run)
+
+    slicer.slice_stl(source, PrinterID.A1_MINI, tmp_path / "out")
+
+    assert captured["cwd"] == str(settings.LOG_DIR / "orca")
