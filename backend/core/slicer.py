@@ -12,6 +12,7 @@ Profile system:
 from __future__ import annotations
 import re
 import shutil
+import tempfile
 
 # Subprocesses use fixed argv with shell disabled; no command text is user supplied.
 import subprocess  # nosec B404
@@ -114,20 +115,27 @@ def _orca_slice(
     t0 = time.time()
     # OrcaSlicer writes numbered diagnostic files relative to its current
     # directory. The systemd unit intentionally makes the application checkout
-    # read-only, so run it from a dedicated writable runtime/log directory.
-    work_dir = settings.LOG_DIR / "orca"
-    work_dir.mkdir(parents=True, exist_ok=True)
+    # read-only. More importantly, an invocation must never inherit another
+    # invocation's diagnostic files or lock state: Orca can abort with EEXIST
+    # (reported as ``return -17``) when a shared working directory is reused.
+    work_root = settings.LOG_DIR / "orca"
+    work_root.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Fixed executable and separated argv; no shell interpretation occurs.
-        result = subprocess.run(  # nosec B603
-            cmd,
-            shell=False,
-            capture_output=True,
-            text=True,
-            cwd=str(work_dir),
-            timeout=600,  # 10 min max — Pi 5 is slower than desktop
-        )
+        # A private, automatically removed workspace makes retries and
+        # printer-specific fallback slices independent as well.
+        with tempfile.TemporaryDirectory(
+            prefix=f"{printer_id.value}-", dir=work_root
+        ) as work_dir:
+            # Fixed executable and separated argv; no shell interpretation occurs.
+            result = subprocess.run(  # nosec B603
+                cmd,
+                shell=False,
+                capture_output=True,
+                text=True,
+                cwd=work_dir,
+                timeout=600,  # 10 min max — Pi 5 is slower than desktop
+            )
     except FileNotFoundError as exc:
         if "xvfb-run" in str(exc):
             raise RuntimeError("xvfb-run not found. Run: sudo apt install xvfb -y")

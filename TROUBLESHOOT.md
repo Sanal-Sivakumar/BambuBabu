@@ -181,6 +181,14 @@ If Orca reports `XDG_RUNTIME_DIR is invalid or not set`, the unit is from an old
 
 If Orca reports `Failed to open file for writing` under the application checkout, update the service to a revision that runs Orca from its writable runtime log directory. Do not make the checkout writable to the service.
 
+If a fallback slice repeatedly reports `return -17` or `EEXIST`, stop the service before any additional printer action. Update to the revision that gives every Orca invocation a private runtime directory; it also suppresses repeated fallback attempts and retains the job for its original printer.
+
+To discard a queued/upload-free job before restarting after an operator stop, use the offline recovery tool with the service stopped. It refuses `uploading`, `starting`, `printing`, and `attention` jobs because those may have affected a physical printer:
+
+```bash
+./venv/bin/python scripts/cancel_pending_job.py <job-uuid>
+```
+
 ## Orca reports missing preset/inheritance errors
 
 Do not copy only the machine/process/filament JSON files. Orca presets inherit from base files. `SLICER_PROFILES_DIR` must point to the complete extracted `BBL` tree.

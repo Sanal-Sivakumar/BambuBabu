@@ -141,6 +141,30 @@ def test_fallback_does_not_steal_when_preferred_printer_is_available():
     processor._dispatch_executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_failed_fallback_is_not_retried_until_original_printer_is_available(monkeypatch):
+    job_id = queued_job(PrinterID.A1_MINI)
+    with SessionLocal.begin() as db:
+        crud.update_printer_state(
+            db, PrinterID.A1_MINI, status=PrinterStatus.PRINTING, plate_cleared=False
+        )
+        crud.update_printer_state(db, PrinterID.P1S, status=PrinterStatus.IDLE)
+
+    def failed_slice(*_args):
+        raise RuntimeError("Orca profile failure")
+
+    monkeypatch.setattr("backend.core.queue_processor.slicer.slice_stl", failed_slice)
+    processor = QueueProcessor(FakeManager())
+    assert processor._try_schedule_fallback(PrinterID.P1S) is True
+    processor._slicer_executor.shutdown(wait=True)
+    with SessionLocal() as db:
+        job = crud.get_job(db, job_id)
+        assert job.status == JobStatus.QUEUED
+        assert job.assigned_printer == PrinterID.A1_MINI
+        assert job.error_message.startswith("Fallback slicing failed;")
+    assert processor._try_schedule_fallback(PrinterID.P1S) is False
+    processor._dispatch_executor.shutdown(wait=False, cancel_futures=True)
+
+
 def test_status_transition_refreshes_identity_map():
     with SessionLocal.begin() as db:
         job = create_job(db, "stored.stl")

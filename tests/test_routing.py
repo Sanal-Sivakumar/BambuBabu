@@ -62,7 +62,7 @@ def test_mock_slice_names_output_for_target_printer(tmp_path, monkeypatch):
     assert estimate == 30
 
 
-def test_orca_slice_runs_from_writable_runtime_log_directory(tmp_path, monkeypatch):
+def test_orca_slice_runs_from_private_writable_runtime_log_directory(tmp_path, monkeypatch):
     source = tmp_path / "job-id.stl"
     source.write_bytes(binary_stl())
     profiles = tmp_path / "profiles"
@@ -95,4 +95,6 @@ def test_orca_slice_runs_from_writable_runtime_log_directory(tmp_path, monkeypat
 
     slicer.slice_stl(source, PrinterID.A1_MINI, tmp_path / "out")
 
-    assert captured["cwd"] == str(settings.LOG_DIR / "orca")
+    work_root = settings.LOG_DIR / "orca"
+    assert captured["cwd"].startswith(str(work_root) + "/")
+    assert not Path(captured["cwd"]).exists()

@@ -261,13 +261,21 @@ class QueueProcessor:
             with SessionLocal.begin() as db:
                 job = crud.get_job(db, job_id)
                 if job and job.status == JobStatus.SLICING:
+                    message = (
+                        "Fallback slicing failed; retained the original printer queue "
+                        f"without retrying fallback automatically: {exc}"
+                    )
                     crud.transition_job_status(
-                        db, job_id, JobStatus.SLICING, JobStatus.QUEUED
+                        db,
+                        job_id,
+                        JobStatus.SLICING,
+                        JobStatus.QUEUED,
+                        error_message=message,
                     )
                     crud.add_log(
                         db,
                         "FALLBACK_ABORTED",
-                        f"Fallback slicing failed; retained preferred queue: {exc}",
+                        message,
                         job_id=job_id,
                         printer_id=(
                             job.assigned_printer.value if job.assigned_printer else None
@@ -433,6 +441,13 @@ class QueueProcessor:
                 .all()
             )
             for job in candidates:
+                # A fallback profile failure must not create a 10-second retry
+                # storm. The job remains eligible for its original printer,
+                # whose already-produced 3MF is still valid.
+                if job.error_message and job.error_message.startswith(
+                    "Fallback slicing failed;"
+                ):
+                    continue
                 source_state = crud.get_printer_state(db, job.assigned_printer)
                 source_available = bool(
                     source_state
