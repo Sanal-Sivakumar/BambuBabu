@@ -181,6 +181,7 @@ class BambuPrinter:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
+        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
         # Lower security level to allow Bambu's self-signed weak certs on newer Debian
         try:
             ctx.set_ciphers('DEFAULT@SECLEVEL=1')
