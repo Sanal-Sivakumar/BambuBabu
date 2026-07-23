@@ -1,41 +1,29 @@
-"""
-BambuBabu — Logs API
-Serves log files to the frontend dashboard.
-"""
-from fastapi import APIRouter
-from pydantic import BaseModel
-import os
-from pathlib import Path
-from backend.config import settings
+"""Structured database-backed event log API used by the dashboard."""
 
-router = APIRouter(prefix="/api/logs", tags=["Logs"])
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
-class LogResponse(BaseModel):
-    content: str
-    filename: str
+from backend.db import crud
+from backend.db.session import get_db_dep
+
+
+router = APIRouter(prefix="/api/logs", tags=["logs"])
+
 
 @router.get("/all")
-def get_logs(limit: int = 80) -> LogResponse:
-    """Read the tail of the bambububu log file."""
-    log_path = Path("logs/bambububu.log")
-    
-    if not log_path.exists():
-        return LogResponse(content="No log file found yet.", filename="bambububu.log")
-        
-    try:
-        # Just a simple tail approach without external libraries
-        with open(log_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            
-        # Get the last 'limit' lines
-        tail_lines = lines[-limit:] if len(lines) > limit else lines
-        
-        return LogResponse(
-            content="".join(tail_lines),
-            filename="bambububu.log"
-        )
-    except Exception as e:
-        return LogResponse(
-            content=f"Error reading logs: {str(e)}",
-            filename="bambububu.log"
-        )
+def get_logs(
+    limit: int = Query(80, ge=1, le=500), db: Session = Depends(get_db_dep)
+) -> list[dict]:
+    return [
+        {
+            "id": entry.id,
+            "timestamp": entry.timestamp.isoformat(),
+            "level": entry.level.value,
+            "event": entry.event,
+            "message": entry.message,
+            "job_id": entry.job_id,
+            "printer_id": entry.printer_id,
+            "extra": entry.extra,
+        }
+        for entry in crud.get_logs(db, limit=limit)
+    ]

@@ -28,6 +28,12 @@ const submitBtn  = document.getElementById("submit-btn");
 let selectedFile = null;
 
 dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    fileInput.click();
+  }
+});
 
 dropZone.addEventListener("dragover", e => {
   e.preventDefault();
@@ -145,7 +151,7 @@ document.querySelectorAll(".filter-btn").forEach(btn => {
 // ── Polling ────────────────────────────────────────────────────────────────
 
 async function poll() {
-  await Promise.all([fetchJobs(), fetchPrinters(), fetchLogs()]);
+  await Promise.all([fetchJobs(), fetchPrinters(), fetchLogs(), fetchHealth()]);
 }
 
 async function fetchJobs() {
@@ -164,10 +170,15 @@ async function fetchPrinters() {
     if (!res.ok) return;
     const printers = await res.json();
     renderPrinters(printers);
-    checkHealth(true);
-  } catch (_) {
-    checkHealth(false);
-  }
+  } catch (_) {}
+}
+
+async function fetchHealth() {
+  try {
+    const res = await fetch(`${API}/api/health`);
+    const data = res.ok ? await res.json() : null;
+    checkHealth(Boolean(data && data.status === "ok"));
+  } catch (_) { checkHealth(false); }
 }
 
 async function fetchLogs() {
@@ -256,7 +267,7 @@ function jobCard(j) {
       </div>
       <div class="job-right">
         <span class="status-badge s-${j.status}">${j.status}</span>
-        <span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${j.id.substring(0, 8)}</span>
+        <span style="font-size:11px;color:var(--text-muted);font-family:ui-monospace,'SFMono-Regular',Consolas,monospace">${j.id.substring(0, 8)}</span>
       </div>
     </div>
   `;
@@ -264,7 +275,7 @@ function jobCard(j) {
 
 function updateQueueBadge() {
   const active = allJobs.filter(j =>
-    ["pending", "analysing", "slicing", "queued", "uploading", "printing"].includes(j.status)
+    ["pending", "analysing", "slicing", "queued", "uploading", "starting", "printing", "attention"].includes(j.status)
   ).length;
   const badge = document.getElementById("badge-queue");
   badge.textContent = active || "";
@@ -295,15 +306,6 @@ function renderPrinters(printers) {
 }
 
 function printerCard(p) {
-  const statusColor = {
-    idle:     "var(--green)",
-    printing: "var(--green)",
-    paused:   "var(--amber)",
-    error:    "var(--red)",
-    offline:  "var(--text-muted)",
-    finished: "var(--green)",
-  }[p.status] || "var(--text-muted)";
-
   const needsClear = !p.plate_cleared;
   const isOnline   = p.connected;
 
@@ -382,6 +384,7 @@ function printerCard(p) {
 }
 
 async function clearPlate(printerId) {
+  if (!window.confirm("Confirm that the model has been physically removed and the plate is safe.")) return;
   try {
     const res = await fetch(`${API}/api/printers/${printerId}/plate-cleared`, {
       method: "POST",
@@ -431,7 +434,12 @@ function toast(msg, type = "info") {
 
 function esc(str) {
   if (!str) return "";
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function formatBytes(bytes) {

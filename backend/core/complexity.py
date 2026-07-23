@@ -2,6 +2,7 @@
 BambuBabu — STL Complexity Analyser
 Scores an STL file (0–100) and determines which printer to use.
 """
+
 from __future__ import annotations
 import numpy as np
 import trimesh
@@ -11,7 +12,7 @@ from backend.config import settings
 from backend.core.logger import get_logger
 from backend.db.models import PrinterID
 
-log = get_logger("bambububu.complexity")
+log = get_logger("bambubabu.complexity")
 
 
 def analyse_stl(stl_path: str | Path) -> dict:
@@ -46,11 +47,13 @@ def analyse_stl(stl_path: str | Path) -> dict:
     raw_volume = abs(float(mesh.volume))
     volume_cm3 = raw_volume / 1000.0
 
-    # Bounding box (mm)
-    extents = mesh.bounding_box.extents  # [x, y, z]
-    bbox = {"x": round(float(extents[0]), 2),
-            "y": round(float(extents[1]), 2),
-            "z": round(float(extents[2]), 2)}
+    # Bounding box (mm). Use NumPy's function rather than the removed ndarray.ptp API.
+    extents = np.ptp(mesh.bounds, axis=0)  # [x, y, z]
+    bbox = {
+        "x": round(float(extents[0]), 2),
+        "y": round(float(extents[1]), 2),
+        "z": round(float(extents[2]), 2),
+    }
 
     # Overhang ratio: faces whose downward normal exceeds 45°
     # A face normal z-component < -cos(45°) = -0.707 means it faces downward
@@ -59,21 +62,17 @@ def analyse_stl(stl_path: str | Path) -> dict:
     overhang_ratio = float(np.sum(overhang_mask)) / max(len(normals), 1)
 
     # ── Complexity Score (0–100) ────────────────────────────────────────────
-    face_score     = min(face_count / 500_000, 1.0) * 100
+    face_score = min(face_count / 500_000, 1.0) * 100
     overhang_score = overhang_ratio * 100
-    volume_score   = min(volume_cm3 / 300.0, 1.0) * 100
+    volume_score = min(volume_cm3 / 300.0, 1.0) * 100
 
-    complexity_score = (
-        face_score     * 0.40
-        + overhang_score * 0.40
-        + volume_score   * 0.20
-    )
+    complexity_score = face_score * 0.40 + overhang_score * 0.40 + volume_score * 0.20
 
     result = {
-        "face_count":       int(face_count),
-        "volume_cm3":       round(volume_cm3, 3),
-        "overhang_ratio":   round(overhang_ratio, 4),
-        "bbox":             bbox,
+        "face_count": int(face_count),
+        "volume_cm3": round(volume_cm3, 3),
+        "overhang_ratio": round(overhang_ratio, 4),
+        "bbox": bbox,
         "complexity_score": round(complexity_score, 2),
     }
 
@@ -84,7 +83,7 @@ def analyse_stl(stl_path: str | Path) -> dict:
     return result
 
 
-def select_printer(analysis: dict) -> tuple[PrinterID, str | None]:
+def select_printer(analysis: dict) -> tuple[PrinterID | None, str | None]:
     """
     Apply the printer selection algorithm.
 
@@ -95,9 +94,11 @@ def select_printer(analysis: dict) -> tuple[PrinterID, str | None]:
     score = analysis["complexity_score"]
 
     # ── Hard size check ────────────────────────────────────────────────────
-    if (bbox["x"] > settings.P1S_MAX_X
-            or bbox["y"] > settings.P1S_MAX_Y
-            or bbox["z"] > settings.P1S_MAX_Z):
+    if (
+        bbox["x"] > settings.P1S_MAX_X
+        or bbox["y"] > settings.P1S_MAX_Y
+        or bbox["z"] > settings.P1S_MAX_Z
+    ):
         return None, (
             f"Object ({bbox['x']}×{bbox['y']}×{bbox['z']} mm) "
             f"exceeds P1S build volume ({settings.P1S_MAX_X}×"
@@ -113,7 +114,7 @@ def select_printer(analysis: dict) -> tuple[PrinterID, str | None]:
 
     # ── Forced to P1S (doesn't fit A1 Mini) ───────────────────────────────
     if not fits_a1_mini:
-        log.info(f"Object forced to P1S — too large for A1 Mini")
+        log.info("Object forced to P1S — too large for A1 Mini")
         return PrinterID.P1S, None
 
     # ── Complexity routing ─────────────────────────────────────────────────
@@ -121,17 +122,23 @@ def select_printer(analysis: dict) -> tuple[PrinterID, str | None]:
         log.info(f"Score {score:.1f} > threshold {settings.COMPLEXITY_THRESHOLD} → P1S")
         return PrinterID.P1S, None
     else:
-        log.info(f"Score {score:.1f} ≤ threshold {settings.COMPLEXITY_THRESHOLD} → A1 Mini (default)")
+        log.info(
+            f"Score {score:.1f} ≤ threshold {settings.COMPLEXITY_THRESHOLD} → A1 Mini (default)"
+        )
         return PrinterID.A1_MINI, None
 
 
 def can_fit_on_printer(bbox: dict, printer_id: PrinterID) -> bool:
     """Check if a bounding box fits on the given printer."""
     if printer_id == PrinterID.P1S:
-        return (bbox["x"] <= settings.P1S_MAX_X
-                and bbox["y"] <= settings.P1S_MAX_Y
-                and bbox["z"] <= settings.P1S_MAX_Z)
+        return (
+            bbox["x"] <= settings.P1S_MAX_X
+            and bbox["y"] <= settings.P1S_MAX_Y
+            and bbox["z"] <= settings.P1S_MAX_Z
+        )
     else:
-        return (bbox["x"] <= settings.A1_MINI_MAX_X
-                and bbox["y"] <= settings.A1_MINI_MAX_Y
-                and bbox["z"] <= settings.A1_MINI_MAX_Z)
+        return (
+            bbox["x"] <= settings.A1_MINI_MAX_X
+            and bbox["y"] <= settings.A1_MINI_MAX_Y
+            and bbox["z"] <= settings.A1_MINI_MAX_Z
+        )

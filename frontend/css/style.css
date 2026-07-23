@@ -29,7 +29,7 @@
   --shadow:      0 4px 24px rgba(0,0,0,0.4);
   --transition:  0.2s ease;
 
-  font-family: 'Inter', sans-serif;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   color: var(--text);
 }
@@ -463,22 +463,26 @@ body {
 .s-slicing    { background: var(--blue)22;     color: var(--blue);   }
 .s-queued     { background: var(--purple-dim); color: var(--purple); }
 .s-uploading  { background: var(--amber-dim);  color: var(--amber);  }
+.s-starting   { background: var(--amber-dim);  color: var(--amber);  }
 .s-printing   { background: var(--green-dim);  color: var(--green);  }
 .s-completed  { background: var(--green-dim);  color: var(--green);  }
 .s-failed     { background: var(--red-dim);    color: var(--red);    }
 .s-rejected   { background: var(--red-dim);    color: var(--red);    }
 .s-cancelled  { background: var(--border);     color: var(--text-muted); }
+.s-attention  { background: var(--red-dim);    color: var(--red); }
 
 .dot-pending    { background: var(--amber); }
 .dot-analysing  { background: var(--blue); }
 .dot-slicing    { background: var(--blue); animation: pulse 1.2s infinite; }
 .dot-queued     { background: var(--purple); }
 .dot-uploading  { background: var(--amber); animation: pulse 1.2s infinite; }
+.dot-starting   { background: var(--amber); animation: pulse 1.2s infinite; }
 .dot-printing   { background: var(--green); animation: pulse 1.2s infinite; }
 .dot-completed  { background: var(--green); }
 .dot-failed     { background: var(--red); }
 .dot-rejected   { background: var(--red); }
 .dot-cancelled  { background: var(--text-muted); }
+.dot-attention  { background: var(--red); animation: pulse 1.2s infinite; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -537,7 +541,7 @@ body {
   padding: 12px 14px;
 }
 .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-.stat-value { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.stat-value { font-size: 20px; font-weight: 700; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
 .stat-unit  { font-size: 13px; color: var(--text-muted); font-weight: 400; }
 
 .printer-progress-label {
@@ -613,7 +617,7 @@ body {
   padding: 8px 4px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   align-items: center;
   animation: fadeIn 0.2s ease;
 }
@@ -679,3 +683,25 @@ body {
 
 /* ── Utilities ───────────────────────────────────────────────── */
 .hidden { display: none !important; }
+
+@media (max-width: 760px) {
+  body { overflow: auto; display: block; }
+  .sidebar {
+    position: sticky;
+    width: 100%;
+    min-height: auto;
+    bottom: auto;
+    padding: 10px 12px;
+  }
+  .brand, .sidebar-footer { display: none; }
+  .nav { flex-direction: row; overflow-x: auto; }
+  .nav-btn { min-width: max-content; }
+  .main { margin-left: 0; height: auto; padding: 20px 14px; }
+  .upload-grid, .printer-grid { grid-template-columns: 1fr; }
+  .log-entry { grid-template-columns: 90px 60px 1fr; }
+  .log-msg { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

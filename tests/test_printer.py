@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+import threading
+import time
+
+import paho.mqtt.client as mqtt
+import pytest
+
+from backend.core.printer import (
+    BambuPrinter,
+    PrintStartRejected,
+    PrintStartUnconfirmed,
+)
+
+
+class PublishInfo:
+    rc = mqtt.MQTT_ERR_SUCCESS
+
+    def wait_for_publish(self, timeout=None):
+        return None
+
+    def is_published(self):
+        return True
+
+
+class FakeClient:
+    def publish(self, *_args, **_kwargs):
+        return PublishInfo()
+
+
+def make_printer():
+    printer = BambuPrinter(
+        "p1s",
+        "192.0.2.10",
+        "SERIAL",
+        "ACCESS",
+        "/tmp/test-printer.pem",
+        "sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        lambda *_: None,
+    )
+    return printer
+
+
+def test_publish_fails_closed_when_disconnected():
+    with pytest.raises(RuntimeError, match="not connected"):
+        make_printer().start_print_and_confirm("part.3mf", "job", timeout=0.01)
+
+
+def test_ftps_keeps_access_code_out_of_process_arguments(tmp_path, monkeypatch):
+    source = tmp_path / "part.3mf"
+    source.write_bytes(b"sliced")
+    captured = {}
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["input"] = kwargs["input"]
+        return Result()
+
+    monkeypatch.setattr("backend.core.printer.subprocess.run", fake_run)
+    printer = make_printer()
+    printer.upload_file(str(source), "part.3mf")
+
+    assert all("ACCESS" not in argument for argument in captured["command"])
+    assert "ACCESS" in captured["input"]
+    assert "--pinnedpubkey" in captured["command"]
+
+
+def test_start_waits_for_authoritative_running_report():
+    printer = make_printer()
+    printer._client = FakeClient()
+    printer._connected = True
+    printer.status = "idle"
+    printer.gcode_state = "IDLE"
+
+    thread = threading.Thread(
+        target=lambda: (
+            time.sleep(0.02),
+            printer._handle_print({"gcode_state": "RUNNING"}),
+        )
+    )
+    thread.start()
+    result = printer.start_print_and_confirm("part.3mf", "job", timeout=1)
+    thread.join()
+    assert result["gcode_state"] == "RUNNING"
+
+
+def test_published_but_unconfirmed_start_raises_attention_signal():
+    printer = make_printer()
+    printer._client = FakeClient()
+    printer._connected = True
+    printer.status = "idle"
+    printer.gcode_state = "IDLE"
+    with pytest.raises(PrintStartUnconfirmed):
+        printer.start_print_and_confirm("part.3mf", "job", timeout=0.01)
+
+
+def test_authoritative_failure_rejects_start():
+    printer = make_printer()
+    printer._client = FakeClient()
+    printer._connected = True
+    printer.status = "idle"
+    printer.gcode_state = "IDLE"
+    thread = threading.Thread(
+        target=lambda: (
+            time.sleep(0.02),
+            printer._handle_print({"gcode_state": "FAILED"}),
+        )
+    )
+    thread.start()
+    with pytest.raises(PrintStartRejected):
+        printer.start_print_and_confirm("part.3mf", "job", timeout=1)
+    thread.join()
+
+
+def test_stale_mqtt_disconnect_cannot_overwrite_current_connection():
+    printer = make_printer()
+    current_client = FakeClient()
+    stale_client = FakeClient()
+    printer._client = current_client
+    printer._connected = True
+    printer.status = "idle"
+
+    printer._on_disconnect(stale_client, None, 1)
+
+    assert printer._connected is True
+    assert printer.status == "idle"

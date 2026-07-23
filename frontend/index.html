@@ -4,8 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BambuBabu 🐼 — 3D Print Automation</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
@@ -56,7 +54,7 @@
       <div class="upload-grid">
         <!-- Drop zone -->
         <div class="card upload-card">
-          <div class="drop-zone" id="drop-zone">
+          <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-controls="file-input">
             <div class="drop-icon">🗂️</div>
             <div class="drop-title">Drop your STL here</div>
             <div class="drop-sub">or click to browse</div>
@@ -117,6 +115,7 @@
           <button class="filter-btn active" data-filter="all">All</button>
           <button class="filter-btn" data-filter="pending">Pending</button>
           <button class="filter-btn" data-filter="printing">Printing</button>
+          <button class="filter-btn" data-filter="attention">Needs attention</button>
           <button class="filter-btn" data-filter="completed">Completed</button>
           <button class="filter-btn" data-filter="failed">Failed</button>
         </div>
@@ -134,7 +133,7 @@
     <section class="tab" id="tab-printers">
       <div class="page-header">
         <h1>Printer Status</h1>
-        <p>Live status via MQTT — updates every 5 seconds.</p>
+        <p>Live status via MQTT — updates every 5 seconds. Plate controls are admin-only in the future host application.</p>
       </div>
 
       <div class="printer-grid" id="printer-grid">

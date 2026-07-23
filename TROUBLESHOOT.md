@@ -1,474 +1,265 @@
-# 🐛 BambuBabu — Troubleshooting & Bug History
+# BambuBabu troubleshooting
 
-This document records every significant bug, error, and difficulty encountered during development and deployment of BambuBabu, along with the root cause analysis and solution. Updated continuously.
+Last reconciled with the code: 2026-07-23.
 
----
-
-## Table of Contents
-
-1. [pydantic-core build failure on Raspberry Pi ARM64](#1-pydantic-core-build-failure-on-raspberry-pi-arm64)
-2. [scipy Fortran compiler error on Pi](#2-scipy-fortran-compiler-error-on-pi)
-3. [ModuleNotFoundError: No module named 'fastapi'](#3-modulenotfounderror-no-module-named-fastapi)
-4. [sqlalchemy greenlet_spawn error](#4-sqlalchemy-greenlet_spawn-error)
-5. [Port 8000 already in use](#5-port-8000-already-in-use)
-6. [GET /api/logs/all returns 404](#6-get-apilogsall-returns-404)
-7. [FTP upload timeout — "The read operation timed out"](#7-ftp-upload-timeout--the-read-operation-timed-out)
-8. [FTP PASV host mismatch](#8-ftp-pasv-host-mismatch)
-9. [OrcaSlicer invalid CLI flag -g](#9-orcaslicer-invalid-cli-flag--g)
-10. [OrcaSlicer --output flag not found](#10-orcaslicer---output-flag-not-found)
-11. [OrcaSlicer: missing WebKitGTK 4.1 runtime](#11-orcaslicer-missing-webkitgtk-41-runtime)
-12. [OrcaSlicer download 404 — wrong URL](#12-orcaslicer-download-404--wrong-url)
-13. [Database model import names wrong](#13-database-model-import-names-wrong)
-14. [GitHub clone fails with password authentication](#14-github-clone-fails-with-password-authentication)
-15. [numpy.ndarray has no attribute 'ptp'](#15-numpyndarray-has-no-attribute-ptp)
-
----
-
-## 1. pydantic-core build failure on Raspberry Pi ARM64
-
-**Error:**
-```
-Building wheel for pydantic-core (pyproject.toml) ... error
-Python reports SOABI: cpython-313-aarch64-linux-gnu
-Computed rustc target triple: aarch64-unknown-linux-gnu
-error: could not compile `pydantic-core`
-```
-
-**Root Cause:**
-`pydantic-core` is written in Rust. Pip could not find a pre-built wheel for Python 3.13 on ARM64, so it attempted to compile from source. The Rust compiler was either not installed or failed during compilation.
-
-**Fix:**
-Install from piwheels (pre-compiled ARM wheels for Raspberry Pi):
-```bash
-pip install pydantic-core --index-url https://www.piwheels.org/simple
-```
-Or pin the version that has an available piwheels wheel:
-```bash
-pip install pydantic==2.7.1 pydantic-core==2.18.4
-```
-
-**Lesson:** Always check piwheels.org before trying to compile Rust/C extensions on the Pi.
-
----
-
-## 2. scipy Fortran compiler error on Pi
-
-**Error:**
-```
-error: metadata-generation-failed
-scipy==1.13.1 requires Fortran compiler (gfortran)
-```
-
-**Root Cause:**
-`scipy` was listed in `requirements.txt` but no pre-built wheel existed for Python 3.13 ARM64. Building from source requires `gfortran`, which was not installed.
-
-**Fix:**
-Removed `scipy` from `requirements.txt`. BambuBabu's complexity analysis uses `trimesh` + `numpy` for geometry operations, which don't require scipy.
-
-```diff
-- scipy==1.13.1
-```
-
-**Lesson:** Always audit dependencies. Only include packages that are directly used in code.
-
----
-
-## 3. ModuleNotFoundError: No module named 'fastapi'
-
-**Error:**
-```
-File "backend/main.py", line 6, in <module>
-    from fastapi import FastAPI
-ModuleNotFoundError: No module named 'fastapi'
-```
-
-**Root Cause:**
-Virtual environment was not activated before running the server.
-
-**Fix:**
-```bash
-source venv/bin/activate
-python -m backend.main
-```
-
-**Lesson:** Always activate the venv first. The prompt changes to `(venv)` when active.
-
----
-
-## 4. sqlalchemy greenlet_spawn error
-
-**Error:**
-```
-from sqlalchemy.engine.events import Connection
-ImportError: cannot import name 'AdaptedConnection'
-```
-
-**Root Cause:**
-SQLAlchemy 2.0.30 wheel from piwheels was corrupted or incompatible with Python 3.13. The package installed but was missing internal modules.
-
-**Fix:**
-Reinstall SQLAlchemy forcing a clean download:
-```bash
-pip uninstall sqlalchemy -y
-pip install sqlalchemy==2.0.30 --no-cache-dir
-```
-
----
-
-## 5. Port 8000 already in use
-
-**Error:**
-```
-ERROR: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
-```
-
-**Root Cause:**
-A previous BambuBabu process did not shut down cleanly (killed with Ctrl+Z instead of Ctrl+C, or server crashed mid-shutdown).
-
-**Fix:**
-```bash
-sudo fuser -k 8000/tcp
-sleep 1
-python -m backend.main
-```
-
-**Prevention:** Always use Ctrl+C to stop the server. If using systemd, use `sudo systemctl stop bambububu`.
-
----
-
-## 6. GET /api/logs/all returns 404
-
-**Symptom:**
-Browser console shows repeated:
-```
-GET /api/logs/all?limit=80 HTTP/1.1" 404 Not Found
-```
-Logs tab in UI shows error or is blank.
-
-**Root Cause:**
-The `logs.py` API router was never created. The frontend expected this endpoint but it didn't exist in the backend.
-
-**Fix:**
-Created `backend/api/logs.py` with a `GET /api/logs/all` endpoint that reads `logs/bambububu.log` and returns the last N lines.
-
-Registered the router in `backend/main.py`:
-```python
-from backend.api import jobs, printers, logs
-app.include_router(logs.router)
-```
-
----
-
-## 7. FTP upload timeout — "The read operation timed out"
-
-**Symptom:**
-Jobs go from `UPLOADING` → `FAILED` with error:
-```
-Print start error: The read operation timed out
-```
-
-**Root Cause (discovered after investigation):**
-The FTP upload itself was **succeeding** — files were physically present on the printer's SD card (confirmed by listing via FTP). However, Bambu Lab printers sometimes do not send the "226 Transfer complete" FTP response after receiving the file. Python's `ftplib.storbinary()` waits indefinitely for this response and eventually hits the socket timeout.
-
-**Evidence:** Files matching job UUIDs (15MB, 12MB) were visible on the printer's SD card even for "failed" jobs.
-
-**Fix:**
-Replaced `storbinary()` with `transfercmd()` to manually control the data socket. After sending all bytes and closing the data connection, we wait only 5 seconds for the "226" response, then proceed regardless:
-
-```python
-conn = ftp.transfercmd(f"STOR /{remote_filename}")
-with open(local_path, "rb") as fp:
-    while True:
-        block = fp.read(32768)
-        if not block:
-            break
-        conn.sendall(block)
-conn.close()
-
-# Wait max 5s for "226 Transfer complete" — don't fail if it doesn't come
-ftp.sock.settimeout(5)
-try:
-    ftp.voidresp()
-except Exception:
-    pass  # Printer didn't send 226 — that's OK, file is there
-```
-
-**Status:** ✅ Fixed
-
----
-
-## 8. FTP PASV host mismatch
-
-**Symptom:**
-FTP connects on port 990, logs in, but data channel hangs.
-
-**Root Cause:**
-In FTP passive mode (PASV), the server sends back its own IP address for the data connection. Bambu printers sometimes return a different internal IP than the one the client used to connect, causing the data channel to connect to an unreachable address.
-
-**Fix:**
-Created `BambuFTP` class that overrides `makepasv()` to always return the printer's known IP regardless of what the PASV response says:
-
-```python
-class BambuFTP(ftplib.FTP_TLS):
-    def makepasv(self):
-        _, port = super().makepasv()
-        return self._force_host, port  # Always use the printer's real IP
-```
-
----
-
-## 9. OrcaSlicer invalid CLI flag -g
-
-**Error:**
-```
-Invalid option --g
-```
-
-**Root Cause:**
-The `-g` flag was inherited from PrusaSlicer's CLI (which embeds G-code in the 3MF). OrcaSlicer 2.4.x removed or never supported this flag.
-
-**Fix:**
-Removed `-g` from the command. OrcaSlicer 2.4.x automatically embeds G-code when using `--slice 0 --export-3mf`.
-
-```diff
-- "-g",
-```
-
----
-
-## 10. OrcaSlicer --output flag not found
-
-**Error:**
-```
-setup params error
-```
-And no output file produced.
-
-**Root Cause:**
-Used `--output filename.3mf` but OrcaSlicer 2.4.x uses `--export-3mf filename.3mf` to export the sliced project as a 3MF file. The `--outputdir` flag only specifies a directory, not a full path.
-
-**Fix:**
-```diff
-- "--output", str(output_file),
-+ "--export-3mf", str(output_file),
-```
-
----
-
-## 11. OrcaSlicer: missing WebKitGTK 4.1 runtime
-
-**Error:**
-```
-Error: missing host WebKitGTK 4.1 runtime libraries.
-Install the distro package providing libwebkit2gtk-4.1.so.0
-```
-
-**Root Cause:**
-OrcaSlicer's AppImage bundles most libraries but NOT WebKitGTK (it's too large). It requires the system to provide `libwebkit2gtk-4.1.so.0`. This was missing on Raspberry Pi OS Trixie.
-
-**Fix:**
-```bash
-sudo apt install -y libwebkit2gtk-4.1-0
-```
-This installed 28.3MB of WebKitGTK and its dependencies (libharfbuzz-icu0, libhyphen0, libjavascriptcoregtk-4.1-0, libmanette-0.2-0, xdg-dbus-proxy).
-
----
-
-## 12. OrcaSlicer download 404 — wrong URL
-
-**Error:**
-```
-HTTP request sent, awaiting response... 404 Not Found
-```
-
-**Root Cause:**
-The OrcaSlicer GitHub repository moved from `SoftFever/OrcaSlicer` to `OrcaSlicer/OrcaSlicer`. Also, the filename format changed between versions — v2.2.0 was used but the naming convention changed for v2.4.2 to include the Ubuntu version: `OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.4.2.AppImage`.
-
-**Fix:**
-Use the correct URL:
-```bash
-sudo wget -O /opt/OrcaSlicer/OrcaSlicer.AppImage \
-  "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.4.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_aarch64_V2.4.2.AppImage"
-```
-
-**Lesson:** Always verify download URLs from the actual GitHub releases page rather than guessing filenames.
-
----
-
-## 13. Database model import names wrong
-
-**Error:**
-```
-ImportError: cannot import name 'PrintJob' from 'backend.db.models'
-```
-
-**Root Cause:**
-The SQLAlchemy ORM models were assumed to be named `PrintJob`, `PrintJobLog`, `PrinterState` based on common naming conventions, but the actual model class names in `models.py` are `Job`, `LogEntry`, `PrinterState`.
-
-**Correct imports:**
-```python
-from backend.db.models import Job, LogEntry, PrinterState
-```
-
-**Lesson:** Always check `models.py` for actual class names before writing scripts.
-
----
-
-## 14. GitHub clone fails with password authentication
-
-**Error:**
-```
-remote: Invalid username or token. Password authentication is not supported for Git operations.
-```
-
-**Root Cause:**
-GitHub deprecated password authentication for Git operations in August 2021. HTTPS cloning now requires a Personal Access Token (PAT).
-
-**Fix:**
-Generate a PAT at GitHub → Settings → Developer settings → Personal access tokens, then use it as the password when cloning:
-```bash
-git clone https://github.com/Sanal-Sivakumar/BambuBabu.git
-# Username: Sanal-Sivakumar
-# Password: <paste PAT here>
-```
-
-**Alternative (permanent fix):** Use SSH keys:
-```bash
-ssh-keygen -t ed25519 -C "pi@bambubabu"
-cat ~/.ssh/id_ed25519.pub  # Add this to GitHub → Settings → SSH Keys
-git clone git@github.com:Sanal-Sivakumar/BambuBabu.git
-```
-
----
-
-## 15. numpy.ndarray has no attribute 'ptp'
-
-**Error:**
-```
-STL analysis error: 'numpy.ndarray' has no attribute 'ptp'
-```
-
-**Root Cause:**
-`numpy.ptp()` (peak-to-peak) was deprecated in NumPy 1.24 and removed in NumPy 2.0. The complexity analysis code used `mesh.bounds.ptp(axis=0)` to get bounding box dimensions.
-
-**Fix:**
-Replace `ptp()` with equivalent expression:
-```python
-# Old (broken with numpy 2.0+)
-extents = mesh.bounds.ptp(axis=0)
-
-# Fixed
-extents = mesh.bounds[1] - mesh.bounds[0]
-```
-
-**Lesson:** When upgrading NumPy, check for deprecated API usage in any code using `.ptp()`, `.in1d()`, or `.cumproduct()`.
-
----
-
-## Quick Reference — Common Commands
+Start with the service log and health endpoint:
 
 ```bash
-# Start server
-source venv/bin/activate && python -m backend.main
-
-# Kill stuck port
-sudo fuser -k 8000/tcp
-
-# Clear queue
-python3 -c "
-import sys; sys.path.insert(0, '.')
-from backend.db.session import SessionLocal
-from backend.db.models import Job, LogEntry, PrinterState
-with SessionLocal() as db:
-    db.query(LogEntry).delete(); db.query(Job).delete()
-    [setattr(s, 'plate_cleared', True) or setattr(s, 'current_job_id', None)
-     for s in db.query(PrinterState).all()]
-    db.commit(); print('Done')
-"
-
-# Test FTP connection to A1 Mini
-python3 -c "
-import ftplib, ssl, socket
-class T(ftplib.FTP_TLS):
-    def __init__(self,h,c):
-        super().__init__(); self._h=h; self.context=c; self._s=None
-    @property
-    def sock(self): return self._s
-    @sock.setter
-    def sock(self,v):
-        if v and not isinstance(v,ssl.SSLSocket): v=self.context.wrap_socket(v,server_hostname=None)
-        self._s=v
-    def connect(self,host,port=990,timeout=15,source_address=None):
-        self.host=host; self.port=port; self.timeout=timeout
-        r=socket.create_connection((host,port),timeout)
-        self.sock=r; self.af=r.family
-        self.file=self.sock.makefile('r',encoding='utf-8')
-        self.welcome=self.getresp(); return self.welcome
-    def makepasv(self):
-        _,p=super().makepasv(); return self._h,p
-ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
-try: ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-except: pass
-f=T('192.168.10.115',ctx); f.connect('192.168.10.115'); f.login('bblp','c9fd869a'); f.prot_p(); f.set_pasv(True); f.dir(); print('OK'); f.quit()
-"
-
-# Test OrcaSlicer slicing
-xvfb-run --auto-servernum /opt/OrcaSlicer/OrcaSlicer.AppImage \
-  --slice 0 --export-3mf /tmp/test.3mf /path/to/test.stl && echo "Slice OK"
+sudo systemctl status bambubabu
+sudo journalctl -u bambubabu -n 100 --no-pager
+curl -s http://127.0.0.1:8000/api/health
 ```
 
----
+Do not paste `.env`, access codes, serial numbers, captured certificates, SMTP credentials, or full printer URLs into an issue or chat. Redact job email addresses as well.
 
-## 16. OrcaSlicer --slice setup params error
+## Service refuses to start
 
-**Error:**
-```
-Slicing error: OrcaSlicer failed (exit 254): Invalid value for option --slice setup params error
-```
+### Placeholder or missing live values
 
-**Root Cause:**
-When setting up printer profiles (e.g., A1 Mini, P1S), copying only the specific `machine`, `process`, and `filament` JSON files to `config/slicer_profiles/` broke the inheritance chain. OrcaSlicer profiles inherit from base files (like `Bambu Lab A1 mini.json` or `BBL.json`). Because the base files weren't in the copied folder, OrcaSlicer failed to parse the profile, triggering a setup params error that cascaded into an invalid `--slice` argument error.
+Live mode intentionally refuses incomplete configuration. Replace every printer value in `.env`, including:
 
-**Fix:**
-Point the backend directly to the extracted AppImage resource directory (`orca_extract/resources/profiles/BBL/`) so OrcaSlicer can resolve all base JSON inheritance.
+- private LAN IP;
+- serial number;
+- newly rotated access code;
+- captured MQTT certificate path;
+- FTPS `sha256//` public-key pin.
 
----
+Check file permissions without printing its contents:
 
-## 17. FTPS [SSL: INVALID_ALERT] Session Reuse Error
-
-**Error:**
-```
-Print start error: [SSL: INVALID_ALERT] invalid alert (_ssl.c:1029)
-```
-*(Also previously manifested as "The read operation timed out" during FTP data transfer)*
-
-**Root Cause:**
-Bambu Lab printers require implicit FTPS (port 990). However, the embedded FTP server (especially on A1 Mini) has buggy TLS implementations. If standard Python `ftplib` is used, it drops the data connection. If we force Python to reuse the SSL session (via `ntransfercmd` overriding), the printer rejects the TLS 1.3 session ticket and throws an Invalid Alert.
-
-**Fix:**
-Ripped out Python's `ftplib` entirely for uploads and replaced it with a `subprocess` call to `curl`. `curl` handles Implicit FTPS (`ftps://ip:990`) and session resumption universally well without triggering ESP32 SSL bugs.
-
-```python
-cmd = [
-    "curl", "--insecure", "--ftp-pasv",
-    "--user", f"bblp:{access_code}",
-    "-T", local_path, f"ftps://{ip}:990/{filename}"
-]
-```
-
----
-
-## 18. Printer Access Code Changes (Connection Failure)
-
-**Symptom:**
-System fails to connect via MQTT or FTPS; jobs fail to dispatch.
-
-**Root Cause:**
-If the printer is reset or LAN Mode is toggled off and back on, the printer generates a **new Access Code**.
-
-**Fix:**
-Update the `.env` file with the new access code:
 ```bash
-A1_MINI_ACCESS_CODE=3a957b48
+stat -c '%a %U %G %n' .env
 ```
-Then restart the backend server so it reloads `.env`.
+
+Expected mode is `600`.
+
+### Unauthenticated mode must bind to loopback
+
+If the log says pending auth requires loopback, restore:
+
+```text
+HOST=127.0.0.1
+AUTHENTICATION_MODE=external-pending
+```
+
+Do not change the auth label just to bypass the check. Use an SSH tunnel from another machine:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 <pi-user>@<pi-address>
+```
+
+### Wildcard CORS is rejected
+
+Leave `CORS_ORIGINS=` empty for the same-origin dashboard. The current unauthenticated service does not support `*`.
+
+### Mock slicing cannot use live printers
+
+Choose one valid combination:
+
+```text
+PRINTERS_ENABLED=true
+MOCK_SLICER=false
+```
+
+or, for development only:
+
+```text
+PRINTERS_ENABLED=false
+MOCK_SLICER=true
+```
+
+The mock slicer creates a fake `.3mf`; sending that output to a printer is prohibited by startup validation.
+
+## Capturing or refreshing printer TLS identity
+
+Rotate the LAN access code on the physical printer first. On a trusted, isolated LAN run:
+
+```bash
+./scripts/capture_printer_identity.sh <printer-ip> /var/lib/bambubabu/certs/<printer>-mqtt.pem
+```
+
+The script refuses to overwrite an existing certificate. To refresh identity after a verified printer certificate/key change, move the previous file to a protected backup, capture a new one, compare the displayed subject/issuer/fingerprint, then update the FTPS pin in `.env`.
+
+If capture returns no certificate:
+
+```bash
+ip route get <printer-ip>
+nc -vz <printer-ip> 8883
+nc -vz <printer-ip> 990
+```
+
+Confirm LAN mode is enabled and that the Pi and printer are on the same trusted network. Do not fall back to unpinned MQTT or FTPS.
+
+## MQTT stays offline
+
+Check:
+
+1. printer IP and serial correspond to the same physical device;
+2. the rotated access code in `.env` is current;
+3. `P1S_MQTT_CERT_PATH` or `A1_MINI_MQTT_CERT_PATH` is readable by the service user;
+4. the certificate is the one captured from port 8883 on that device;
+5. no VLAN/firewall blocks TCP 8883.
+
+Useful commands:
+
+```bash
+sudo -u <service-user> test -r /var/lib/bambubabu/certs/<printer>-mqtt.pem
+openssl x509 -in /var/lib/bambubabu/certs/<printer>-mqtt.pem -noout -subject -issuer -fingerprint -sha256
+sudo journalctl -u bambubabu -f
+```
+
+A certificate verification failure is a security stop. Re-capture only after physically confirming the printer and network.
+
+## FTPS upload fails
+
+The service retries three times, then fails the job if no start command may have been sent. Check TCP 990, free space on the printer, and the FTPS pin.
+
+Recompute the observed pin without writing credentials:
+
+```bash
+openssl s_client -connect <printer-ip>:990 -showcerts </dev/null 2>/dev/null \
+  | openssl x509 -pubkey -noout \
+  | openssl pkey -pubin -outform DER 2>/dev/null \
+  | openssl dgst -sha256 -binary \
+  | openssl base64 -A
+```
+
+Prefix the result with `sha256//` only after confirming it belongs to the intended physical printer. Never remove the pin or pass the access code on a command line.
+
+## Job is stuck in `starting` or moves to `attention`
+
+`starting` is deliberately not equivalent to printing. BambuBabu waits for a newer MQTT report containing `PREPARE` or `RUNNING`. A timeout, service restart during handoff, or unexplained state requires physical inspection.
+
+Do not resubmit immediately. Check the printer screen and plate:
+
+- if the printer is running, leave the job/slot blocked and restore MQTT reporting;
+- if it failed or never started, inspect the device and remove any model/material safely;
+- only then use Plate Cleared. An `attention` job is resolved to `failed`, not retried automatically.
+
+This behavior prevents duplicate prints after an ambiguous command.
+
+## Printer reports `IDLE` without `FINISH`
+
+The job moves from `printing` to `attention`, printer state becomes error, and `plate_cleared` remains false. This can indicate a firmware/report interruption, manual stop, or lost completion message. Inspect the physical printer before resolving it. BambuBabu will not infer success from `IDLE`.
+
+## Plate Cleared returns HTTP 409
+
+Plate clearance is rejected while durable printer/job state is `printing`, `paused`, or `starting`. Restore MQTT connectivity and reconcile the real printer state first. The button is an assertion that a human removed the model and the plate is safe; it is not a generic queue-unblock button.
+
+## OrcaSlicer is missing or fails startup validation
+
+Expected production paths are:
+
+```text
+ORCA_SLICER_PATH=/opt/bambubabu/orca/appimage-root/AppRun
+SLICER_PROFILES_DIR=/opt/bambubabu/orca/appimage-root/resources/profiles/BBL
+```
+
+Check them:
+
+```bash
+test -x /opt/bambubabu/orca/appimage-root/AppRun
+test -d /opt/bambubabu/orca/appimage-root/resources/profiles/BBL
+command -v xvfb-run
+```
+
+Re-run `scripts/install_pi.sh` if the versioned installation is incomplete. The installer verifies the official ARM64 artifact checksum before extraction.
+
+## Orca reports missing preset/inheritance errors
+
+Do not copy only the machine/process/filament JSON files. Orca presets inherit from base files. `SLICER_PROFILES_DIR` must point to the complete extracted `BBL` tree.
+
+Verify the selected files exist:
+
+```bash
+profiles=/opt/bambubabu/orca/appimage-root/resources/profiles/BBL
+test -f "$profiles/machine/Bambu Lab P1S 0.4 nozzle.json"
+test -f "$profiles/machine/Bambu Lab A1 mini 0.4 nozzle.json"
+test -f "$profiles/process/0.20mm Standard @BBL P1P.json"
+test -f "$profiles/process/0.20mm Standard @BBL A1M.json"
+```
+
+Fallback routing always re-slices with the target profile. Never rename or reuse another printer's `.3mf`.
+
+## Upload errors
+
+| HTTP status | Cause | Action |
+|---|---|---|
+| `400` | wrong suffix, truncated/invalid STL envelope | export a valid binary or ASCII STL |
+| `413` | stream exceeded `MAX_STL_SIZE_MB` | reduce the mesh or raise the reviewed limit |
+| `422` | invalid form value/email | correct the input |
+| `429` | active jobs reached `MAX_ACTIVE_JOBS` | wait for jobs to reach terminal states |
+| `507` | uploads plus slices reached `MAX_STORAGE_MB` | inspect retention and disk capacity |
+
+Check both configured quota and real filesystem capacity:
+
+```bash
+df -h /var/lib/bambubabu
+du -sh /var/lib/bambubabu/uploads /var/lib/bambubabu/sliced
+```
+
+Do not manually remove files for active or plate-blocking jobs. Terminal retention and orphan cleanup run on the maintenance interval.
+
+## Logs tab is empty or incompatible
+
+The dashboard expects `GET /api/logs/all?limit=80` to return a JSON array of structured database events. It no longer parses the rotating text log.
+
+```bash
+curl -s 'http://127.0.0.1:8000/api/logs/all?limit=5'
+```
+
+An expected item has `timestamp`, `level`, `event`, and `message`. If the API returns data but the UI is stale, hard-refresh the browser. The rotating application log is separate at `/var/lib/bambubabu/logs/bambubabu.log`.
+
+## SQLite, WAL, or backup problems
+
+Inspect without copying a live `.db` file directly:
+
+```bash
+sqlite3 /var/lib/bambubabu/bambubabu.db 'PRAGMA journal_mode; PRAGMA integrity_check;'
+ls -l /var/lib/bambubabu/backups
+```
+
+Expected journal mode is `wal`, integrity result is `ok`, and database/backup files are owner-only. The service uses SQLite's online backup API; a plain copy can miss WAL content.
+
+To restore:
+
+```bash
+sudo systemctl stop bambubabu
+install -m 0600 /var/lib/bambubabu/backups/<verified-backup>.db \
+  /var/lib/bambubabu/bambubabu.db
+sudo systemctl start bambubabu
+```
+
+Keep the old database as a protected backup until the restored service passes health and job-history checks.
+
+## Installer or dependency failure
+
+The supported deployment is Ubuntu 24.04 ARM64. Confirm:
+
+```bash
+uname -m
+. /etc/os-release && printf '%s %s\n' "$ID" "$VERSION_ID"
+```
+
+Expected architecture is `aarch64`. `requirements.lock` contains exact versions and hashes; the installer uses pip `--require-hashes`. Do not replace it with an unpinned `pip install` during recovery. Regenerate the lock only as a reviewed dependency update, then run tests and `pip-audit`.
+
+## Service cannot read a checkout under `/home`
+
+The unit uses `ProtectHome=read-only`, not inaccessible. If the checkout was moved after installation, reinstall the generated unit from the new path by rerunning `scripts/install_pi.sh`. Confirm `WorkingDirectory` and `ExecStart`:
+
+```bash
+systemctl cat bambubabu
+```
+
+Runtime writes must remain under `/var/lib/bambubabu`; the application checkout is intentionally read-only to the service.
+
+## Validation checklist after a repair
+
+```bash
+scripts/check_secrets.sh
+bash -n scripts/*.sh
+.venv/bin/python -m ruff check backend tests
+.venv/bin/python -m pytest -o addopts='' -W error
+curl -s http://127.0.0.1:8000/api/health
+```
+
+For a transport or lifecycle repair, also perform a controlled hardware exercise: real slice, upload, confirmed start, MQTT progress, completion, plate block, physical clearance, and service restart during a non-printing test job. Record firmware versions and observed MQTT states without recording credentials.

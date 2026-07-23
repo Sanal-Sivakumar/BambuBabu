@@ -2,11 +2,10 @@
 BambuBabu — Structured Logger
 File-based rotating logger + DB log helper
 """
+
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
-
 from backend.config import settings
 
 
@@ -18,6 +17,7 @@ def get_logger(name: str) -> logging.Logger:
         return logger  # already configured
 
     logger.setLevel(logging.DEBUG if settings.DEBUG else logging.INFO)
+    logger.propagate = False
 
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -25,7 +25,7 @@ def get_logger(name: str) -> logging.Logger:
     )
 
     # ── Rotating file handler (10 MB × 5 files) ──
-    log_file = settings.LOG_DIR / "bambububu.log"
+    log_file = settings.LOG_DIR / "bambubabu.log"
     fh = RotatingFileHandler(
         log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
     )
@@ -41,4 +41,4 @@ def get_logger(name: str) -> logging.Logger:
 
 
 # Module-level root logger for the app
-log = get_logger("bambububu")
+log = get_logger("bambubabu")

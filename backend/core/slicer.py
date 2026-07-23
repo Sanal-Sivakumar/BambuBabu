@@ -4,16 +4,17 @@ Slices STL files using OrcaSlicer in headless mode (via xvfb-run).
 Falls back to mock mode (for testing without OrcaSlicer installed).
 
 Profile system:
-  Each printer needs 3 JSON files in config/slicer_profiles/:
-    <printer>_machine.json   — printer dimensions, nozzle, speeds
-    <printer>_process.json   — layer height, infill, supports
-    <printer>_filament.json  — temperatures, retraction, material
-  These are extracted from the OrcaSlicer AppImage bundled profiles.
+  Machine, process, and filament presets are resolved inside the complete BBL
+  profile tree extracted from the pinned OrcaSlicer AppImage. Keeping the full
+  tree preserves OrcaSlicer's inherited base presets on every installation.
 """
+
 from __future__ import annotations
 import re
 import shutil
-import subprocess
+
+# Subprocesses use fixed argv with shell disabled; no command text is user supplied.
+import subprocess  # nosec B404
 import time
 from pathlib import Path
 from typing import Optional
@@ -22,30 +23,30 @@ from backend.config import settings
 from backend.core.logger import get_logger
 from backend.db.models import PrinterID
 
-log = get_logger("bambububu.slicer")
-
-# Slicer profile directory (where AppImage was extracted)
-# OrcaSlicer JSON profiles use inheritance (e.g., inheriting from BBL.json).
-# If we copy just 3 files, they break. We MUST point to the extracted directory!
-PROFILES_DIR = Path("/home/tinkerspace/orca_extract/resources/profiles/BBL")
-
-# Each printer has 3 profile files: machine + process + filament
-MACHINE_PROFILES = {
-    PrinterID.P1S:     PROFILES_DIR / "machine/Bambu Lab P1S 0.4 nozzle.json",
-    PrinterID.A1_MINI: PROFILES_DIR / "machine/Bambu Lab A1 mini 0.4 nozzle.json",
-}
-PROCESS_PROFILES = {
-    PrinterID.P1S:     PROFILES_DIR / "process/0.20mm Standard @BBL P1P.json",
-    PrinterID.A1_MINI: PROFILES_DIR / "process/0.20mm Standard @BBL A1M.json",
-}
-FILAMENT_PROFILES = {
-    PrinterID.P1S:     PROFILES_DIR / "filament/Bambu PLA Basic @base.json",
-    PrinterID.A1_MINI: PROFILES_DIR / "filament/Bambu PLA Basic @BBL A1M.json",
-}
+log = get_logger("bambubabu.slicer")
 
 
-def slice_stl(stl_path: str | Path, printer_id: PrinterID,
-              output_dir: str | Path) -> tuple[Path, Optional[int]]:
+def _profile_paths(printer_id: PrinterID) -> tuple[Path, Path, Path]:
+    """Resolve profiles from the complete, configurable Orca inheritance tree."""
+    root = Path(settings.SLICER_PROFILES_DIR)
+    machine = {
+        PrinterID.P1S: root / "machine/Bambu Lab P1S 0.4 nozzle.json",
+        PrinterID.A1_MINI: root / "machine/Bambu Lab A1 mini 0.4 nozzle.json",
+    }[printer_id]
+    process = {
+        PrinterID.P1S: root / "process/0.20mm Standard @BBL P1P.json",
+        PrinterID.A1_MINI: root / "process/0.20mm Standard @BBL A1M.json",
+    }[printer_id]
+    filament = {
+        PrinterID.P1S: root / "filament/Bambu PLA Basic @base.json",
+        PrinterID.A1_MINI: root / "filament/Bambu PLA Basic @BBL A1M.json",
+    }[printer_id]
+    return machine, process, filament
+
+
+def slice_stl(
+    stl_path: str | Path, printer_id: PrinterID, output_dir: str | Path
+) -> tuple[Path, Optional[int]]:
     """
     Slice an STL file for the given printer.
 
@@ -55,11 +56,11 @@ def slice_stl(stl_path: str | Path, printer_id: PrinterID,
     Raises:
         RuntimeError if slicing fails
     """
-    stl_path   = Path(stl_path)
+    stl_path = Path(stl_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_file = output_dir / (stl_path.stem + ".3mf")
+    output_file = output_dir / f"{stl_path.stem}-{printer_id.value}.3mf"
 
     if settings.MOCK_SLICER:
         return _mock_slice(stl_path, output_file)
@@ -69,69 +70,61 @@ def slice_stl(stl_path: str | Path, printer_id: PrinterID,
 
 # ── Real OrcaSlicer slice ───────────────────────────────────────────────────
 
-def _orca_slice(stl_path: Path, output_file: Path,
-                printer_id: PrinterID) -> tuple[Path, Optional[int]]:
+
+def _orca_slice(
+    stl_path: Path, output_file: Path, printer_id: PrinterID
+) -> tuple[Path, Optional[int]]:
     """Run OrcaSlicer headlessly via xvfb-run with real Bambu profiles."""
 
-    machine  = MACHINE_PROFILES.get(printer_id)
-    process  = PROCESS_PROFILES.get(printer_id)
-    filament = FILAMENT_PROFILES.get(printer_id)
+    machine, process, filament = _profile_paths(printer_id)
 
     # Validate profiles exist
-    missing = [str(p) for p in [machine, process, filament]
-               if p is None or not p.exists()]
+    missing = [str(path) for path in (machine, process, filament) if not path.is_file()]
     if missing:
-        log.warning(
-            f"[{printer_id}] Missing slicer profiles: {missing}. "
-            "Slicing without profiles (may fail). "
-            "Copy profiles to config/slicer_profiles/ on this machine."
+        raise RuntimeError(
+            "Required OrcaSlicer profiles or their inheritance tree are missing: "
+            + ", ".join(missing)
         )
 
     # Build OrcaSlicer command
     # xvfb-run provides a virtual X11 display (OrcaSlicer needs it even in CLI)
     cmd = [
-        "xvfb-run", "--auto-servernum",
+        "xvfb-run",
+        "--auto-servernum",
         "--server-args=-screen 0 1024x768x24",
-        settings.ORCA_SLICER_PATH,
-        "--slice", "0",
-        "--export-3mf", str(output_file),    # Output sliced 3MF with embedded gcode
+        str(settings.ORCA_SLICER_PATH),
+        "--slice",
+        "0",
+        "--export-3mf",
+        str(output_file),  # Output sliced 3MF with embedded gcode
     ]
 
     # Load machine + process settings (semicolon-separated)
-    settings_files = [str(p) for p in [machine, process]
-                      if p is not None and p.exists()]
-    if settings_files:
-        cmd += ["--load-settings", ";".join(settings_files)]
+    settings_files = [str(machine), str(process)]
+    cmd += ["--load-settings", ";".join(settings_files)]
 
     # Load filament settings
-    if filament and filament.exists():
-        cmd += ["--load-filaments", str(filament)]
+    cmd += ["--load-filaments", str(filament)]
 
     cmd.append(str(stl_path))
 
     log.info(f"[{printer_id}] Slicing: {stl_path.name} → {output_file.name}")
-    
-    # Run via shell=True to exactly match the manual bash test that succeeded
-    # Escape the paths that might have spaces, just in case
-    import shlex
-    cmd_str = " ".join(shlex.quote(c) for c in cmd)
-    
-    log.info(f"[{printer_id}] Shell Command: {cmd_str}")
+
+    log.info(f"[{printer_id}] OrcaSlicer command prepared with configured profiles")
     t0 = time.time()
 
     try:
-        result = subprocess.run(
-            cmd_str,
-            shell=True,
+        # Fixed executable and separated argv; no shell interpretation occurs.
+        result = subprocess.run(  # nosec B603
+            cmd,
+            shell=False,
             capture_output=True,
             text=True,
-            timeout=600,   # 10 min max — Pi 5 is slower than desktop
+            timeout=600,  # 10 min max — Pi 5 is slower than desktop
         )
     except FileNotFoundError as exc:
         if "xvfb-run" in str(exc):
-            raise RuntimeError(
-                "xvfb-run not found. Run: sudo apt install xvfb -y"
-            )
+            raise RuntimeError("xvfb-run not found. Run: sudo apt install xvfb -y")
         raise RuntimeError(
             f"OrcaSlicer not found at '{settings.ORCA_SLICER_PATH}'. "
             "Check ORCA_SLICER_PATH in your .env file."
@@ -140,8 +133,9 @@ def _orca_slice(stl_path: Path, output_file: Path,
         raise RuntimeError("OrcaSlicer timed out after 10 minutes")
 
     elapsed = round(time.time() - t0, 1)
-    log.info(f"[{printer_id}] OrcaSlicer finished in {elapsed}s "
-             f"(exit={result.returncode})")
+    log.info(
+        f"[{printer_id}] OrcaSlicer finished in {elapsed}s (exit={result.returncode})"
+    )
 
     if result.stdout:
         log.debug(f"[{printer_id}] stdout: {result.stdout[:400]}")
@@ -151,18 +145,17 @@ def _orca_slice(stl_path: Path, output_file: Path,
     if result.returncode != 0:
         log.error(f"[{printer_id}] OrcaSlicer failed:\n{result.stderr[:600]}")
         raise RuntimeError(
-            f"OrcaSlicer failed (exit {result.returncode}): "
-            f"{result.stderr[:200]}"
+            f"OrcaSlicer failed (exit {result.returncode}): {result.stderr[:200]}"
         )
 
     if not output_file.exists():
-        raise RuntimeError(
-            f"OrcaSlicer produced no output file: {output_file}"
-        )
+        raise RuntimeError(f"OrcaSlicer produced no output file: {output_file}")
 
     estimated_minutes = _parse_estimated_time(result.stdout + result.stderr)
-    log.info(f"[{printer_id}] ✅ Sliced → {output_file.name} "
-             f"(~{estimated_minutes or '?'} min)")
+    log.info(
+        f"[{printer_id}] ✅ Sliced → {output_file.name} "
+        f"(~{estimated_minutes or '?'} min)"
+    )
     return output_file, estimated_minutes
 
 
@@ -170,8 +163,8 @@ def _parse_estimated_time(output: str) -> Optional[int]:
     """Try to extract estimated print time from slicer stdout."""
     # OrcaSlicer outputs something like: "Estimated printing time: 2h 34m"
     patterns = [
-        r"(\d+)h\s*(\d+)m",      # "2h 34m"
-        r"(\d+)\s*minutes?",      # "154 minutes"
+        r"(\d+)h\s*(\d+)m",  # "2h 34m"
+        r"(\d+)\s*minutes?",  # "154 minutes"
         r"print\s*time.*?(\d+)",  # generic fallback
     ]
     for pat in patterns:
@@ -186,6 +179,7 @@ def _parse_estimated_time(output: str) -> Optional[int]:
 
 
 # ── Mock slicer (for testing) ───────────────────────────────────────────────
+
 
 def _mock_slice(stl_path: Path, output_file: Path) -> tuple[Path, Optional[int]]:
     """
