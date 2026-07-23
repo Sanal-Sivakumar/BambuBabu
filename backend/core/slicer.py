@@ -109,12 +109,19 @@ def _orca_slice(stl_path: Path, output_file: Path,
     cmd.append(str(stl_path))
 
     log.info(f"[{printer_id}] Slicing: {stl_path.name} → {output_file.name}")
-    log.info(f"[{printer_id}] Command: {' '.join(cmd)}")
+    
+    # Run via shell=True to exactly match the manual bash test that succeeded
+    # Escape the paths that might have spaces, just in case
+    import shlex
+    cmd_str = " ".join(shlex.quote(c) for c in cmd)
+    
+    log.info(f"[{printer_id}] Shell Command: {cmd_str}")
     t0 = time.time()
 
     try:
         result = subprocess.run(
-            cmd,
+            cmd_str,
+            shell=True,
             capture_output=True,
             text=True,
             timeout=600,   # 10 min max — Pi 5 is slower than desktop
