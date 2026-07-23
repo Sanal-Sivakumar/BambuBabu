@@ -416,3 +416,59 @@ f=T('192.168.10.115',ctx); f.connect('192.168.10.115'); f.login('bblp','c9fd869a
 xvfb-run --auto-servernum /opt/OrcaSlicer/OrcaSlicer.AppImage \
   --slice 0 --export-3mf /tmp/test.3mf /path/to/test.stl && echo "Slice OK"
 ```
+
+---
+
+## 16. OrcaSlicer --slice setup params error
+
+**Error:**
+```
+Slicing error: OrcaSlicer failed (exit 254): Invalid value for option --slice setup params error
+```
+
+**Root Cause:**
+When setting up printer profiles (e.g., A1 Mini, P1S), copying only the specific `machine`, `process`, and `filament` JSON files to `config/slicer_profiles/` broke the inheritance chain. OrcaSlicer profiles inherit from base files (like `Bambu Lab A1 mini.json` or `BBL.json`). Because the base files weren't in the copied folder, OrcaSlicer failed to parse the profile, triggering a setup params error that cascaded into an invalid `--slice` argument error.
+
+**Fix:**
+Point the backend directly to the extracted AppImage resource directory (`orca_extract/resources/profiles/BBL/`) so OrcaSlicer can resolve all base JSON inheritance.
+
+---
+
+## 17. FTPS [SSL: INVALID_ALERT] Session Reuse Error
+
+**Error:**
+```
+Print start error: [SSL: INVALID_ALERT] invalid alert (_ssl.c:1029)
+```
+*(Also previously manifested as "The read operation timed out" during FTP data transfer)*
+
+**Root Cause:**
+Bambu Lab printers require implicit FTPS (port 990). However, the embedded FTP server (especially on A1 Mini) has buggy TLS implementations. If standard Python `ftplib` is used, it drops the data connection. If we force Python to reuse the SSL session (via `ntransfercmd` overriding), the printer rejects the TLS 1.3 session ticket and throws an Invalid Alert.
+
+**Fix:**
+Ripped out Python's `ftplib` entirely for uploads and replaced it with a `subprocess` call to `curl`. `curl` handles Implicit FTPS (`ftps://ip:990`) and session resumption universally well without triggering ESP32 SSL bugs.
+
+```python
+cmd = [
+    "curl", "--insecure", "--ftp-pasv",
+    "--user", f"bblp:{access_code}",
+    "-T", local_path, f"ftps://{ip}:990/{filename}"
+]
+```
+
+---
+
+## 18. Printer Access Code Changes (Connection Failure)
+
+**Symptom:**
+System fails to connect via MQTT or FTPS; jobs fail to dispatch.
+
+**Root Cause:**
+If the printer is reset or LAN Mode is toggled off and back on, the printer generates a **new Access Code**.
+
+**Fix:**
+Update the `.env` file with the new access code:
+```bash
+A1_MINI_ACCESS_CODE=3a957b48
+```
+Then restart the backend server so it reloads `.env`.
