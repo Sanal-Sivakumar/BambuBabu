@@ -1,386 +1,208 @@
-# 3D Print Automation System — MVP Implementation Plan
+# BambuBabu implementation plan and evidence
 
-> **Goal**: Automate the end-to-end print workflow for max 2 concurrent jobs,
-> replacing the current manual slice-and-print process.
+Last reconciled: 2026-07-23.
 
----
+This is a status document, not a wishlist. `Complete` means implemented and covered by local automated checks. `Deployment validation` means code exists but still needs the target Pi or physical printers. Authentication remains deliberately deferred to the final host-integration phase.
 
-## Architecture Overview
+## Product objective
 
-```
-                     INTERNET
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│   ┌─────────────────┐       ┌──────────────────┐        │
-│   │  Vercel (Next.js│──────►│  Cloudflare      │        │
-│   │  User Portal)   │◄──────│  Tunnel (HTTPS)  │        │
-│   └─────────────────┘       └────────┬─────────┘        │
-│                                      │                   │
-└──────────────────────────────────────│───────────────────┘
-                                       │ encrypted tunnel
-                      COMPANY WiFi     │
-┌──────────────────────────────────────│───────────────────┐
-│                                      ▼                   │
-│               ┌──────────────────────────────┐           │
-│               │       Raspberry Pi 5          │           │
-│               │                              │           │
-│               │  ┌──────────┐  ┌──────────┐  │           │
-│               │  │ FastAPI  │  │ SQLite   │  │           │
-│               │  │  (API)   │  │   (DB)   │  │           │
-│               │  └──────────┘  └──────────┘  │           │
-│               │  ┌──────────┐  ┌──────────┐  │           │
-│               │  │OrcaSlicer│  │  Email   │  │           │
-│               │  │  (CLI)   │  │  (SMTP)  │  │           │
-│               │  └──────────┘  └──────────┘  │           │
-│               └──────────────────────────────┘           │
-│                        │ WiFi                             │
-│              ┌──────────┴──────────┐                     │
-│              ▼                     ▼                     │
-│         ┌─────────┐           ┌──────────┐               │
-│         │  P1S    │           │ A1 Mini  │               │
-│         │MQTT+FTP │           │MQTT+FTP  │               │
-│         └─────────┘           └──────────┘               │
-└──────────────────────────────────────────────────────────┘
-```
+Provide a safe local automation core for two Bambu Lab printers that can accept an STL, route and slice it correctly, start exactly one physical print only after authoritative confirmation, preserve ambiguous state across failure/restart, and require human plate clearance before reuse.
 
----
+## Non-negotiable invariants
 
-## How Cloudflare Tunnel Works
+1. No printer credential or serial has a usable source-controlled default.
+2. An unconfirmed command never becomes `printing`.
+3. A restart never blindly replays upload/start work.
+4. A cancelled job cannot be revived by an older worker.
+5. A file sliced for one printer is never sent to the other.
+6. An ambiguous or completed physical plate blocks dispatch until inspected.
+7. Mock slice output cannot reach live printers.
+8. Pending-auth mode cannot bind to a non-loopback address.
+9. Model upload and storage growth are bounded.
+10. Database backup includes committed WAL state and is not world-readable.
 
-```
-Pi runs a tiny daemon (cloudflared)
-          │
-          └──► Connects OUT to Cloudflare (no inbound ports needed)
-                        │
-                        └──► Pi gets a stable public HTTPS URL:
-                             https://3dprint-api.yourcompany.com
-                                        │
-                                        └──► Vercel calls this URL
-```
+## Phase status
 
-- **Free** on Cloudflare's free plan
-- **No port forwarding** on the company router needed
-- **TLS encrypted** end-to-end
-- URL stays the same even after Pi reboots
-- ~10 minutes to set up
-
----
-
-## MVP Job Workflow
-
-```
-1. User visits Vercel site → uploads STL + name / email / description
-2. Next.js → POST to Pi API (STL file + metadata)
-3. Pi stores STL → analyses complexity → assigns printer → saves to SQLite
-4. Pi sends approval email to Admin (STL attached, complexity score, suggested printer)
-5. Admin clicks Approve → Pi starts slicing (OrcaSlicer CLI)
-                        → Pi emails user: "Approved & queued"
-6. Pi checks printer availability → uploads .3mf via FTPS
-                                  → sends MQTT print command
-                                  → emails user: "Printing started"
-7. Pi monitors via MQTT → print % on status page
-                        → on complete: emails admin + user
-8. Admin clears plate → clicks "Plate Cleared" in portal
-                      → unlocks next queued job
-```
-
----
-
-## Technology Stack
-
-| Layer | Technology | Purpose |
-|---|---|---|
-| **Frontend** | Next.js 14 (App Router) | User portal + Admin dashboard |
-| **Hosting** | Vercel (free tier) | Frontend deployment |
-| **Tunnel** | Cloudflare Tunnel (free) | Expose Pi API to internet |
-| **Backend** | FastAPI + Uvicorn | REST API on Raspberry Pi |
-| **Database** | SQLite + SQLAlchemy | Job & printer state storage |
-| **Migrations** | Alembic | DB schema versioning |
-| **Slicer** | OrcaSlicer CLI (headless) | STL → .3mf per printer profile |
-| **STL Analysis** | trimesh + numpy | Complexity scoring |
-| **Printer Control** | paho-mqtt (MQTT) | Real-time printer commands & status |
-| **File Transfer** | ftplib with TLS (FTPS) | Upload .3mf to printer |
-| **Email** | SMTP (Gmail / company mail) | All notification emails |
-| **Language** | Python 3.11+ | Core backend |
-
----
-
-## Project File Structure
-
-```
-3d_auto/
-│
-├── docs/
-│   ├── implementation_plan.md          ← this file
-│   └── printer_selection_algorithm.md  ← routing logic
-│
-├── frontend/                           ← deployed to Vercel
-│   ├── app/
-│   │   ├── page.tsx                    # Upload portal
-│   │   ├── status/[jobId]/page.tsx     # Job status page
-│   │   └── admin/page.tsx              # Admin dashboard
-│   ├── components/
-│   ├── lib/
-│   │   └── api.ts                      # Pi API client
-│   ├── package.json
-│   └── next.config.js
-│
-└── backend/                            ← runs on Raspberry Pi
-    ├── main.py                         # FastAPI app entry
-    ├── config.py                       # Settings (.env loader)
-    ├── requirements.txt
-    ├── .env                            # Secrets — NEVER commit
-    │
-    ├── api/
-    │   ├── jobs.py                     # Upload, status, list
-    │   ├── admin.py                    # Approve, reject, plate-cleared
-    │   └── printers.py                 # Live printer status
-    │
-    ├── core/
-    │   ├── printer.py                  # BambuPrinter class (MQTT + FTP)
-    │   ├── printer_manager.py          # P1S + A1 Mini state management
-    │   ├── complexity.py               # STL analyser (trimesh)
-    │   ├── slicer.py                   # OrcaSlicer CLI wrapper
-    │   └── job_runner.py               # Full flow orchestrator
-    │
-    ├── db/
-    │   ├── models.py                   # SQLAlchemy models
-    │   ├── crud.py                     # DB operations
-    │   └── session.py                  # DB connection
-    │
-    ├── email/
-    │   ├── mailer.py                   # SMTP sender
-    │   └── templates/
-    │       ├── admin_review.html
-    │       ├── user_approved.html
-    │       ├── user_printing.html
-    │       └── print_complete.html
-    │
-    └── storage/
-        ├── uploads/                    # Raw .stl files
-        └── sliced/                     # .3mf files ready to print
-```
-
----
-
-## Database Schema
-
-### `jobs` table
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | UUID | Primary key |
-| `user_name` | TEXT | Submitter name |
-| `user_email` | TEXT | Submitter email |
-| `original_filename` | TEXT | Original STL filename |
-| `stl_path` | TEXT | Internal storage path |
-| `sliced_path` | TEXT | Set after slicing |
-| `status` | ENUM | See job states below |
-| `complexity_score` | FLOAT | 0.0 – 100.0 |
-| `assigned_printer` | ENUM | P1S or A1_MINI |
-| `estimated_print_minutes` | INT | From OrcaSlicer output |
-| `approval_token` | TEXT | One-time UUID for email links |
-| `token_expires_at` | DATETIME | Token expiry (24h) |
-| `reject_reason` | TEXT | Set on rejection |
-| `print_progress` | INT | 0–100% from MQTT |
-| `submitted_at` | DATETIME | |
-| `approved_at` | DATETIME | |
-| `print_started_at` | DATETIME | |
-| `print_ended_at` | DATETIME | |
-| `plate_cleared_at` | DATETIME | |
-
-### Job States (Status Enum)
-
-```
-PENDING_REVIEW → SLICING → QUEUED → UPLOADING → PRINTING → COMPLETED
-                                                               ↓
-                                                        PLATE_CLEARED
-     └──────────────────────────────────────────────► REJECTED
-     └──────────────────────────────────────────────► FAILED
-```
-
-### `printer_state` table
-
-| Column | Type | Description |
-|---|---|---|
-| `printer_id` | ENUM | P1S or A1_MINI |
-| `status` | TEXT | IDLE / PRINTING / PAUSED / ERROR / OFFLINE |
-| `current_job_id` | UUID | FK to jobs table |
-| `plate_cleared` | BOOL | Set by admin after print |
-| `last_seen` | DATETIME | Last MQTT heartbeat |
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Auth | Description |
+| Phase | Status | Evidence in repository | Remaining external action |
 |---|---|---|---|
-| POST | `/api/jobs` | User | Upload STL, create job |
-| GET | `/api/jobs/{id}` | Public | Get job status (for status page) |
-| GET | `/api/jobs` | Admin | List all jobs |
-| POST | `/api/jobs/{id}/approve` | Token | Approve via email link |
-| POST | `/api/jobs/{id}/reject` | Token | Reject via email link |
-| POST | `/api/jobs/{id}/plate-cleared` | Admin | Mark plate as cleared |
-| GET | `/api/printers` | Public | Live printer status |
-| GET | `/api/health` | Public | Health check |
+| Credential removal and startup safety | Complete in code | empty secret defaults, `.env.example`, `check_secrets.sh`, runtime validation | rotate both real LAN codes |
+| Printer TLS identity | Complete in code | trusted MQTT certificate, FTPS SPKI pin, capture script | capture/verify each physical device on trusted LAN |
+| Auth and member/admin policy | Deferred by product decision | loopback enforcement and documented capability contract | implement in parent project last |
+| Transactional lifecycle | Complete | compare-and-swap transitions, refreshed identity map, transaction-scoped logs/state | exercise under real load |
+| MQTT fail-closed start | Complete | QoS 1 acknowledgment, idle precondition, newer PREPARE/RUNNING proof | verify firmware reports on both models |
+| Restart reconciliation | Complete | safe CPU retry, handoff quarantine, printing ownership restore | controlled Pi restart tests |
+| Cancellation and plate races | Complete | cancellable-state CAS, retained files, plate/current-job invariants | physical workflow validation |
+| Cross-printer fallback | Complete | fit check, source-availability rule, reservation, target re-slice | real Orca outputs on both printers |
+| Portable slicing | Complete for installer | OS/architecture/Python guards, pinned artifact/checksum, extracted full BBL tree, printer-specific output | fresh Ubuntu 24.04 ARM64 run |
+| Logs API/UI | Complete | structured `/api/logs/all` array and escaped dashboard rendering | browser smoke test on Pi |
+| Upload/storage hardening | Complete | streaming limit, active/storage quotas, STL envelope validation, retention/orphans | tune quotas for production volume |
+| SQLite durability | Complete | WAL, busy timeout, online backup, rotation, restrictive modes | restore drill on target storage |
+| Automated tests and security scans | Complete locally | `tests/`, Ruff, warnings-as-errors, pip-audit, Bandit | add CI runner if repository workflow permits |
+| Documentation reconciliation | Complete | README, technical reference, troubleshooting, this plan, routing spec | update again with hardware evidence |
 
----
+## Delivered work
 
-## Email Notifications
+### 1. Credentials and exposure
 
-### 1 — Admin Review Email (on upload)
-- **To**: Admin
-- **Subject**: `[3D Print Request] Job #42 — bracket.stl — Suggested: A1 Mini`
-- **Contains**: User info, STL attached, complexity score, suggested printer, estimated time, Approve / Reject buttons (signed links)
+- Removed all concrete printer network values and access codes from tracked docs/configuration.
+- Converted access codes and SMTP password to `SecretStr`.
+- Removed access code from curl argv; it is supplied over stdin configuration.
+- Added credential-shape scanning for tracked changes.
+- Added device identity pinning for both MQTT and FTPS.
+- Forced unauthenticated deployments to loopback and rejected wildcard CORS.
+- Moved production writes to `/var/lib/bambubabu`; systemd sees the checkout read-only.
 
-### 2 — User Approved Email (on approval)
-- **To**: User
-- **Subject**: `Your 3D Print has been approved — Job #42`
-- **Contains**: Assigned printer, queue position, estimated wait time
+Physical rotation cannot be performed from this repository. Old codes must be changed on the printers, not merely edited in `.env`.
 
-### 3 — User Print Started Email
-- **To**: User
-- **Subject**: `Your 3D Print has started — Job #42`
-- **Contains**: Printer name, start time, estimated completion time
+### 2. Lifecycle and printer truth
 
-### 4 — Print Complete Email
-- **To**: Admin + User
-- **Subject**: `Print Complete — Job #42 — Please clear the plate`
-- **Admin body**: Reminder to clear plate + link to portal
-- **User body**: Print is ready for collection
+- Added `starting` and `attention` states.
+- Replaced read-then-write status mutation with conditional SQL updates.
+- Required a connected, idle printer and acknowledged QoS 1 publish.
+- Required a newer MQTT `PREPARE`/`RUNNING` report before `printing`.
+- Mapped timeout/restart ambiguity to `attention`, with the printer slot and plate blocked.
+- Treated `IDLE` without `FINISH` as ambiguous instead of complete.
+- Kept completed/failed job ownership until explicit physical clearance.
 
----
+### 3. Queue concurrency and fallback
 
-## Security Measures (MVP Scope)
+- Kept the slicer single-worker to avoid concurrent heavy Pi workloads.
+- Added up to two independent handoff workers so both printers can receive work without blocking the polling loop.
+- Reserved job and printer slot transactionally before transfer.
+- Protected cancellation from worker revival.
+- Added fallback reservation, bounding-box fit check, source-availability check, and mandatory target-profile re-slicing.
+- Returned a failed fallback slice to its original preferred queue.
 
-| Concern | Solution |
-|---|---|
-| STL file validation | Magic bytes check, size limit (100MB), extension check |
-| Admin approval links | One-time UUID token, expires after 24 hours |
-| Admin dashboard | Password protected (env var), upgrade to JWT post-MVP |
-| Pi API exposure | Cloudflare Tunnel — no open ports on company network |
-| Secrets | `.env` file, `chmod 600`, never committed to git |
-| File storage | Outside web root, UUID-based internal filenames |
-| Email token replay | Token marked used on first click, ignored on subsequent |
+### 4. Slicing and deployment
 
----
+- Replaced host-specific paths with environment-controlled paths.
+- Pinned OrcaSlicer version, asset URL, and SHA-256.
+- Extracted the complete BBL profile inheritance tree and run the extracted `AppRun`.
+- Added a hash-locked, fully resolved production dependency file.
+- Added a Python 3.12 developer bootstrap, `.python-version`, and fail-fast Pi runtime checks.
+- Added an idempotent versioned `/opt/bambubabu/orca` layout.
+- Added a hardened systemd unit and separate writable runtime home.
 
-## Printer Configuration
+### 5. Admission, retention, and database
 
-```yaml
-# config/printers.yaml
-printers:
-  p1s:
-    name: "Bambu Lab P1S"
-    ip: "192.168.x.x"           # fill in
-    serial: "XXXXXXXX"          # from printer screen
-    access_code: "XXXXXXXX"     # from printer screen (LAN mode)
-    mqtt_port: 8883
-    ftp_port: 990
-    build_volume: [256, 256, 256]
-    slicer_profile: "config/slicer_profiles/p1s_standard.json"
+- Stream uploads to disk in bounded chunks and fsync before atomic rename.
+- Enforce per-file, active-job, and aggregate storage limits.
+- Validate binary STL length or ASCII STL envelope before admission.
+- Normalize untrusted human text and hide email from job API responses.
+- Enable SQLite foreign keys, WAL, 30-second busy timeout, and normal synchronous mode.
+- Use SQLite's online backup API, microsecond filenames, rotation, and owner-only modes.
+- Clean terminal artifacts, stale partial uploads, and old unreferenced crash/cancellation files.
 
-  a1_mini:
-    name: "Bambu Lab A1 Mini"
-    ip: "192.168.x.x"           # fill in
-    serial: "XXXXXXXX"
-    access_code: "XXXXXXXX"
-    mqtt_port: 8883
-    ftp_port: 990
-    build_volume: [180, 180, 180]
-    slicer_profile: "config/slicer_profiles/a1mini_standard.json"
+### 6. API and UI
+
+- Made `/api/logs/all` return the structured array the frontend expects.
+- Escaped log/job/error text before HTML insertion.
+- Added `starting` and `attention` status presentation.
+- Added explicit confirmation before plate clearance.
+- Based the sidebar readiness indicator on `/api/health` rather than any successful endpoint.
+- Removed remote font dependencies.
+
+## Automated acceptance evidence
+
+The current local suite has 38 tests covering:
+
+- API upload success and invalid inputs;
+- byte limit, active queue quota, and response PII removal;
+- cancellation compare-and-swap race;
+- structured logs contract;
+- plate clearance and active-print refusal;
+- pending-auth loopback, CORS, live/mock, and pinned identity settings;
+- disconnected/rejected/timed-out/confirmed MQTT starts;
+- deterministic handoff release and ambiguous handoff blocking;
+- restart state reconciliation;
+- preferred/fallback/no-steal routing;
+- identity-map refresh after atomic transition and terminal-state graph enforcement;
+- confirmed finish and missing-finish quarantine;
+- WAL mode, consistent protected backup, terminal retention, and orphan cleanup.
+
+Required commands:
+
+```bash
+.venv/bin/python -m pytest -o addopts='' -W error
+.venv/bin/python -m ruff check backend tests
+uvx pip-audit -r requirements.lock
+uvx bandit -q -r backend -x tests
+bash -n scripts/*.sh
+scripts/check_secrets.sh
+test "$(.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.12
 ```
 
----
+Current result: tests pass, Ruff passes, no known dependency vulnerabilities are reported, Bandit reports no unsuppressed finding, shell syntax passes, and the tracked secret-pattern check passes.
 
-## Implementation Phases
+## Final authentication phase contract
 
-### Phase 1 — Pi Backend Foundation
-- [ ] FastAPI project setup
-- [ ] SQLite DB + SQLAlchemy models + Alembic migrations
-- [ ] STL upload endpoint with file validation
-- [ ] STL complexity analyser (trimesh)
-- [ ] Printer selection logic
-- [ ] Health check endpoint
+This phase starts only when the parent project is selected and its identity/session model is known. Do not add a second standalone user database prematurely.
 
-### Phase 2 — Email & Approval Flow
-- [ ] SMTP email integration
-- [ ] Admin review email with signed approval/reject links
-- [ ] Approve / Reject endpoints (token validation)
-- [ ] User notification emails (approved, started, complete)
+Required behavior:
 
-### Phase 3 — Slicing
-- [ ] Install OrcaSlicer on Pi 5
-- [ ] Configure printer profiles (P1S + A1 Mini)
-- [ ] OrcaSlicer CLI subprocess wrapper
-- [ ] Background slicing trigger on approval
-- [ ] Store estimated print time from slicer output
+### Member
 
-### Phase 4 — Printer Control
-- [ ] MQTT client per printer (paho-mqtt + TLS)
-- [ ] FTPS file upload to printer
-- [ ] Print command via MQTT
-- [ ] Live progress monitoring (%, temps, errors)
-- [ ] Plate-cleared gate logic (blocks next job)
+- submit under the authenticated member identity; do not trust form-provided ownership;
+- view only owned jobs and safe public printer availability;
+- cancel only owned jobs while state is in the cancellable set;
+- never read another member's email, description, errors, or detailed events.
 
-### Phase 5 — Cloudflare Tunnel
-- [ ] Install cloudflared on Pi
-- [ ] Create tunnel + assign public HTTPS URL
-- [ ] Register as systemd service (auto-start on boot)
+### Admin
 
-### Phase 6 — Vercel Frontend
-- [ ] Next.js project setup
-- [ ] Upload page (drag-drop STL + user form)
-- [ ] Job status page (polling Pi API)
-- [ ] Admin dashboard (queue view, approve/reject, plate-cleared, live printer tiles)
-- [ ] Deploy to Vercel
+- list and inspect all jobs;
+- view system/printer logs, stats, and history;
+- clear a physical plate and resolve `attention`;
+- operate retention, quotas, printer identity, and service diagnostics;
+- see audit events for every privileged action.
 
-### Phase 7 — Integration Testing
-- [ ] End-to-end test with real STL on both printers
-- [ ] Email flow verified (all 4 email types)
-- [ ] Queue ordering test (multiple jobs)
-- [ ] Edge cases: printer offline, slicer fail, oversized file, token expiry
+### Integration requirements
 
----
+- parent proxy is the only network-facing component;
+- BambuBabu remains on loopback or a private Unix socket;
+- trusted identity is conveyed through a mechanism that direct clients cannot forge;
+- CSRF protection applies to browser-authenticated mutation requests;
+- API tests cover anonymous denial, cross-member denial, member ownership, admin-only mutation, and audit attribution;
+- public job forms no longer select `user_email` as authority.
 
-## What's Needed Before Coding Starts
+The current `user_name`/`user_email` form fields are notification metadata only. They are not an authorization mechanism.
 
-1. **Both Printer Details** (from printer touchscreen → Settings → Network):
-   - IP address
-   - Serial number
-   - Access code
-   - LAN mode must be enabled
+## Deployment validation plan
 
-2. **Email credentials** for notifications:
-   - Gmail app password (recommended), OR
-   - Company SMTP server + credentials
+These steps are not complete until evidence is collected on the target hardware.
 
-3. **Raspberry Pi**:
-   - OS installed (Raspberry Pi OS recommended)
-   - Connected to company WiFi
-   - SSH access confirmed
+1. Install fresh Ubuntu 24.04 ARM64 on the Pi and update OS packages.
+2. Clone a reviewed revision and run `scripts/install_pi.sh` twice to prove idempotence.
+3. Rotate both printer LAN codes and capture MQTT/FTPS identities on a controlled LAN.
+4. Confirm service refuses one intentionally wrong certificate, pin, access code, and non-loopback bind.
+5. Slice one known STL for each printer; inspect the 3MF and Orca output.
+6. Print one job per printer and record observed MQTT `gcode_state` sequence.
+7. Verify a disconnected MQTT session cannot publish or mark printing.
+8. Restart during analysis and confirm safe retry.
+9. In a controlled non-printing scenario, restart during handoff and confirm `attention` without replay.
+10. Complete a print, verify the plate remains blocked, physically clear it, then verify next dispatch.
+11. Make the preferred printer unavailable and confirm fallback re-slices for the other printer.
+12. Fill a test quota and verify 413/429/507 responses without partial-file leakage.
+13. Create and restore a SQLite backup, then run `PRAGMA integrity_check`.
+14. Verify systemd restart, read-only checkout, owner-only runtime files, and log rotation.
 
-4. **Accounts** (all free):
-   - Cloudflare account (for tunnel)
-   - Vercel account (for frontend hosting)
+## Known limitations after this phase
 
----
+- No authentication or role enforcement inside BambuBabu yet.
+- No physical stop/cancel API for an already-started print; current cancellation is deliberately pre-print only.
+- Routing uses an axis-aligned bounding box and does not search alternative model rotations.
+- Overhang complexity counts faces rather than surface area and is affected by triangulation density.
+- Printer protocol behavior may vary by firmware; hardware validation is still required.
+- Email is optional and send failure does not roll back a physical print transition.
+- SQLite is appropriate for one Pi/service process, not a multi-host control plane.
 
-## Resource Usage on Pi 5 (4GB)
+## Exit criteria for production exposure
 
-| Service | RAM Estimate |
-|---|---|
-| FastAPI (Uvicorn, 2 workers) | ~150 MB |
-| SQLite | ~20 MB |
-| MQTT clients (2×) | ~30 MB |
-| OrcaSlicer CLI (during slicing) | ~1–2 GB peak |
-| cloudflared | ~30 MB |
-| OS + overhead | ~300 MB |
-| **Total** | **~2–3 GB** (tight but manageable) |
+BambuBabu may be considered for network-facing production use only after all are true:
 
-> Keep OrcaSlicer slicing sequential — never run two slice jobs simultaneously.
-
----
-
-*Last updated: July 2026*
-*Stack: Next.js + Vercel + Cloudflare Tunnel + FastAPI + SQLite + OrcaSlicer + paho-mqtt*
+- parent authentication and member/admin authorization tests pass;
+- real device access codes are rotated and no historic value remains valid;
+- device identities are pinned and recovery procedure is exercised;
+- the complete deployment validation plan has evidence;
+- backup restore and plate-clear procedures are accepted by operators;
+- an operator can identify and resolve `attention` without guessing;
+- documentation is updated with actual OS, Pi, printer firmware, and observed protocol versions.
