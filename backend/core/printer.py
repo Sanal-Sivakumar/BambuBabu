@@ -213,7 +213,14 @@ class BambuPrinter:
         )
 
     def request_status(self) -> None:
-        self._publish({"pushing": {"sequence_id": "0", "command": "pushall"}})
+        # A status refresh is non-mutating. Bambu LAN brokers commonly accept it
+        # at QoS 0 but do not acknowledge the QoS 1 variant. Start commands keep
+        # the stricter QoS 1 acknowledgement requirement.
+        self._publish(
+            {"pushing": {"sequence_id": "0", "command": "pushall"}},
+            qos=0,
+            require_ack=False,
+        )
 
     def is_idle(self) -> bool:
         with self._condition:
@@ -371,7 +378,9 @@ class BambuPrinter:
             "last_seen": self.last_seen.isoformat() if self.last_seen else None,
         }
 
-    def _publish(self, payload: dict) -> None:
+    def _publish(
+        self, payload: dict, *, qos: int = 1, require_ack: bool = True
+    ) -> None:
         with self._condition:
             client = self._client
             connected = self._connected
@@ -379,9 +388,10 @@ class BambuPrinter:
             raise RuntimeError(f"{self.printer_id} MQTT is not connected")
 
         topic = f"device/{self.serial}/request"
-        info = client.publish(topic, json.dumps(payload), qos=1)
+        info = client.publish(topic, json.dumps(payload), qos=qos)
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError(f"MQTT publish rejected with rc={info.rc}")
-        info.wait_for_publish(timeout=settings.MQTT_PUBLISH_TIMEOUT_SECONDS)
-        if not info.is_published():
-            raise RuntimeError("MQTT publish was not acknowledged by the broker")
+        if require_ack:
+            info.wait_for_publish(timeout=settings.MQTT_PUBLISH_TIMEOUT_SECONDS)
+            if not info.is_published():
+                raise RuntimeError("MQTT publish was not acknowledged by the broker")

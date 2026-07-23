@@ -159,7 +159,7 @@ Paho MQTT connects to port 8883 using TLS 1.2+ behavior from Python's default co
 
 Reconnect attempts stop and replace the previous Paho client before creating another. Shutdown requests broker disconnect before stopping Paho's network loop, preventing an open MQTT socket from consuming the systemd stop timeout. Connect/disconnect callbacks are ignored unless they belong to the current client, so a delayed callback from an old socket cannot mark a newer connection offline.
 
-Control messages publish to `device/<serial>/request` with QoS 1. A publish fails unless the client is connected, the broker accepts the publish, and `wait_for_publish()` confirms it within `MQTT_PUBLISH_TIMEOUT_SECONDS`.
+The non-mutating `pushall` status refresh publishes at QoS 0 because Bambu LAN brokers commonly do not acknowledge its QoS 1 form. Physical start commands publish to `device/<serial>/request` with QoS 1. A start publish fails unless the client is connected, the broker accepts it, and `wait_for_publish()` confirms it within `MQTT_PUBLISH_TIMEOUT_SECONDS`.
 
 Before a start command, the latest live state must be `idle`. The client records the MQTT report version, publishes `project_file`, then waits for a strictly newer report showing `PREPARE`, `RUNNING`, or mapped `printing`. `FAILED` raises a rejected-start error. Timeout raises an unconfirmed-start error. The queue maps ambiguous start errors to `attention`, never `printing`.
 

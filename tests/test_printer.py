@@ -24,10 +24,14 @@ class PublishInfo:
 
 
 class FakeClient:
+    def __init__(self):
+        self.publishes = []
+
     def subscribe(self, *_args, **_kwargs):
         return (mqtt.MQTT_ERR_SUCCESS, 1)
 
-    def publish(self, *_args, **_kwargs):
+    def publish(self, *args, **kwargs):
+        self.publishes.append((args, kwargs))
         return PublishInfo()
 
 
@@ -47,6 +51,17 @@ def make_printer():
 def test_publish_fails_closed_when_disconnected():
     with pytest.raises(RuntimeError, match="not connected"):
         make_printer().start_print_and_confirm("part.3mf", "job", timeout=0.01)
+
+
+def test_status_request_is_nonblocking_qos_zero():
+    printer = make_printer()
+    client = FakeClient()
+    printer._client = client
+    printer._connected = True
+
+    printer.request_status()
+
+    assert client.publishes[0][1]["qos"] == 0
 
 
 def test_ftps_keeps_access_code_out_of_process_arguments(tmp_path, monkeypatch):
