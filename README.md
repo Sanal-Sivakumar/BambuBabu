@@ -77,7 +77,7 @@ The installer:
 - extracts the full Orca profile inheritance tree;
 - creates a clean virtual environment from `requirements.lock` with hash checking;
 - creates `/var/lib/bambubabu` with restrictive permissions;
-- installs a hardened `bambubabu.service` unit without starting it;
+- installs a hardened `bambubabu.service` unit with a private systemd runtime directory for headless OrcaSlicer, without starting it;
 - copies `.env.example` to `.env` with mode `0600` only when `.env` does not exist.
 
 The headless slicer prerequisites include `xvfb`, its `xauth` helper, and the `libopengl0`/`libglu1-mesa` runtime libraries; the health endpoint does not report slicing ready unless they are installed.

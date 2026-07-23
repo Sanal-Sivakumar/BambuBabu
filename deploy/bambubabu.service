@@ -8,11 +8,14 @@ Type=simple
 User=@@APP_USER@@
 WorkingDirectory=@@APP_DIR@@
 Environment=HOME=@@RUNTIME_HOME@@
+Environment=XDG_RUNTIME_DIR=/run/bambubabu
 Environment=PYTHONUNBUFFERED=1
 ExecStart=@@APP_DIR@@/venv/bin/python -m backend.main
 Restart=on-failure
 RestartSec=10
 UMask=0077
+RuntimeDirectory=bambubabu
+RuntimeDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
