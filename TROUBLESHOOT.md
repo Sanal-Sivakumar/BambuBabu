@@ -1,6 +1,8 @@
 # BambuBabu troubleshooting
 
-Last reconciled with the code: 2026-07-23.
+Last reconciled with the code and target Pi: 2026-07-24.
+
+If resuming after the first successful A1 Mini prototype print, follow [docs/prototype_status.md](docs/prototype_status.md) before uploading another model.
 
 Start with the service log and health endpoint:
 
@@ -203,11 +205,11 @@ Verify the selected files exist:
 profiles=/opt/bambubabu/orca/appimage-root/resources/profiles/BBL
 test -f "$profiles/machine/Bambu Lab P1S 0.4 nozzle.json"
 test -f "$profiles/machine/Bambu Lab A1 mini 0.4 nozzle.json"
-test -f "$profiles/process/0.20mm Standard @BBL P1P.json"
+test -f "$profiles/process/0.20mm Standard @BBL X1C.json"
 test -f "$profiles/process/0.20mm Standard @BBL A1M.json"
 ```
 
-Fallback routing always re-slices with the target profile. Never rename or reuse another printer's `.3mf`.
+Fallback routing always re-slices with the target profile. Never rename or reuse another printer's `.gcode.3mf`.
 
 Before upload, BambuBabu requires a printable `.gcode.3mf` archive containing `Metadata/plate_1.gcode`. If this validation fails, inspect the Orca CLI output and preset tree; do not upload the archive manually or attempt an MQTT start command.
 
@@ -317,3 +319,5 @@ curl -s http://127.0.0.1:8000/api/health
 ```
 
 For a transport or lifecycle repair, also perform a controlled hardware exercise: real slice, upload, confirmed start, MQTT progress, completion, plate block, physical clearance, and service restart during a non-printing test job. Record firmware versions and observed MQTT states without recording credentials.
+
+Do not declare a repair production-ready from one successful print. Re-run the relevant automated checks, perform one supervised canary, verify durable job/printer state afterward, and record the result in the prototype checkpoint and implementation plan.

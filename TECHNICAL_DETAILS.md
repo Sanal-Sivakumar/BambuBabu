@@ -1,6 +1,6 @@
 # BambuBabu technical reference
 
-Last reconciled with the code: 2026-07-23.
+Last reconciled with the code and prototype evidence: 2026-07-24. The resumable hardware checkpoint is [docs/prototype_status.md](docs/prototype_status.md).
 
 This document describes the implementation that exists in this repository. It separates enforced invariants from future work and from behavior that still needs physical hardware validation.
 
@@ -35,7 +35,7 @@ Authentication is not implemented in this service by explicit project decision. 
 | `backend/main.py` | lifecycle, health, routers, static frontend |
 | `backend/config.py` | typed settings, secret handling, unsafe-start rejection |
 | `backend/api/jobs.py` | streaming admission, listing, cancellation, job logs |
-| `backend/api/printers.py` | live/durable status, plate clearance, history |
+| `backend/api/printers.py` | live/durable status, guarded idle acknowledgement, plate clearance, history |
 | `backend/api/logs.py` | structured log array used by the dashboard |
 | `backend/core/complexity.py` | mesh metrics, build-volume checks, preferred printer |
 | `backend/core/slicer.py` | portable Orca preset resolution and headless slicing |
@@ -99,7 +99,8 @@ The queue reconciles durable state before its polling loop starts:
 | `analysing`, `slicing` | reset to `pending`; safe CPU work retries |
 | `uploading`, `starting` | move to `attention`; retain job/printer ownership and block plate |
 | `printing` | preserve `printing`; restore printer ownership and blocked plate |
-| terminal/queued/pending | leave unchanged |
+| `completed` below 100% | preserve terminal state and reconcile progress to 100% |
+| other terminal/queued/pending | leave unchanged |
 
 Upload/start operations are never automatically replayed after a restart because the physical printer may already have received the file or command. This is the core fail-closed rule.
 
@@ -144,7 +145,7 @@ After verifying Ubuntu 24.04 ARM64 and Python 3.12, the production installer dow
 
 | Printer | Machine | Process | Filament |
 |---|---|---|---|
-| P1S | `Bambu Lab P1S 0.4 nozzle.json` | `0.20mm Standard @BBL P1P.json` | `Bambu PLA Basic @base.json` |
+| P1S | `Bambu Lab P1S 0.4 nozzle.json` | `0.20mm Standard @BBL X1C.json` | `Bambu PLA Basic @base.json` |
 | A1 Mini | `Bambu Lab A1 mini 0.4 nozzle.json` | `0.20mm Standard @BBL A1M.json` | `Bambu PLA Basic @BBL A1M.json` |
 
 Orca runs through `xvfb-run`, with an argument array, `shell=False`, captured output, and a ten-minute timeout. Ubuntu also needs `xauth`, `libopengl0`, and `libglu1-mesa`; startup and health validate these dependencies. The systemd unit creates a private `/run/bambubabu` directory and supplies it as `XDG_RUNTIME_DIR`. Each Orca invocation receives its own temporary writable directory below `logs/orca`: Orca writes numbered diagnostics and lock-like state relative to its working directory, so sharing one directory can cause filesystem conflicts. This preserves the read-only checkout and isolates retries/fallback profiles. The P1S uses Orca's declared default `0.20mm Standard @BBL X1C` process; the P1P process explicitly rejects the P1S with CLI return `-17`. Output is named `<job-uuid>-<printer>.gcode.3mf`, then inspected as a ZIP archive for `Metadata/plate_1.gcode` before it is eligible for upload. This prevents a generic/non-printable 3MF from reaching the printer and prevents a fallback slice from being mistaken for the preferred-printer slice. Missing/incompatible profiles, runtime dependencies, malformed output, or an absent plate G-code entry fail closed.
@@ -230,7 +231,7 @@ Error codes of operational importance:
 | Code | Meaning |
 |---|---|
 | `400` | invalid suffix or STL structure, invalid printer ID |
-| `409` | cancellation/plate-clear conflicts with current state |
+| `409` | cancellation, plate-clear, or guarded idle-acknowledgement conflict |
 | `413` | streamed file exceeds byte limit |
 | `422` | form/email validation failure |
 | `429` | active queue is full |
@@ -277,10 +278,11 @@ The automated suite currently covers:
 - structured logs API/UI contract;
 - plate clearance and active-state refusal;
 - loopback, CORS, live/mock separation, and printer identity configuration;
-- disconnected MQTT, authoritative start success, timeout, and failure;
+- disconnected MQTT, authoritative start success, timeout, unacknowledged-but-possibly-delivered start, and failure;
+- guarded stale-`FAILED` acknowledgement and partial MQTT report handling;
 - printer handoff failures and `attention` quarantine;
-- restart reconciliation and compare-and-swap identity refresh;
-- preferred routing, cross-printer re-slicing, and no-steal behavior;
+- restart reconciliation, completed-progress repair, and compare-and-swap identity refresh;
+- compatible P1S/A1 profiles, isolated Orca workspaces, printable archive validation, fallback suppression, cross-printer re-slicing, and no-steal behavior;
 - `FINISH`, missing-`FINISH`, and physical plate blocking;
 - WAL, consistent backup permissions, terminal retention, and orphan cleanup.
 
@@ -294,4 +296,6 @@ uvx bandit -q -r backend -x tests
 scripts/check_secrets.sh
 ```
 
-At reconciliation time, the tests, lint, dependency audit, and static security scan pass. This does not prove the physical printer path. The target Pi installation, real Orca output, firmware-specific MQTT reports, TLS identity capture, FTPS transfer, and actual plate workflow still require controlled hardware validation.
+At reconciliation time, 49 tests, Ruff, dependency audit, Bandit, shell syntax, Python 3.12 verification, and the tracked/untracked secret-pattern check all pass.
+
+Hardware evidence proves the Ubuntu 24.04 ARM64 Pi installation, pinned identities, real Orca output for both printer profiles, dashboard/log compatibility, and one complete A1 Mini upload/start/print/`FINISH`/plate-clear cycle. It does not yet prove a physical P1S print, physical fallback, restart/failure injection, production-filesystem quota/restore drills, long-running load, authentication, or network exposure. See the prototype checkpoint for the ordered remaining work.

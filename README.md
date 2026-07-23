@@ -6,6 +6,8 @@ This repository contains a hardened local automation core. Authentication is int
 
 ## Current status
 
+Prototype checkpoint as of 2026-07-24: the Ubuntu 24.04 ARM64 Pi installation is working, both printer transports are connected, real Orca slicing is validated for both printer profiles, and one A1 Mini job completed successfully through physical plate clearance. The P1S physical print and the remaining failure/restart drills are still pending. See [docs/prototype_status.md](docs/prototype_status.md) before resuming.
+
 Implemented and covered by automated tests:
 
 - no committed printer IPs, serials, access codes, certificates, or live public-key pins;
@@ -18,16 +20,18 @@ Implemented and covered by automated tests:
 - structured database logs consumed directly by the dashboard;
 - SQLite WAL mode, busy timeout, consistent online backups, retention, and orphan cleanup;
 - a hash-locked Python environment and checksum-pinned OrcaSlicer installer for Ubuntu 24.04 ARM64;
-- 38 automated API, lifecycle, routing, printer-failure, and storage tests.
+- 49 automated API, lifecycle, routing, printer-failure, and storage tests.
 
-Still requiring deployment work:
+Still requiring prototype work:
 
-- rotate both real printer LAN access codes from their screens;
-- capture each device's MQTT certificate and FTPS public-key pin on a trusted LAN;
-- run the installer and a real slice/print/stop/restart exercise on the target Pi and printers;
+- deploy the queued completion-state update recorded in the prototype checkpoint;
+- complete one controlled P1S physical print and cross-printer fallback exercise;
+- complete restart, disconnect, ambiguous-handoff, cancellation, quota, retention, and backup-restore drills;
+- add a deliberate manual dispatch approval/interlock for prototype testing;
+- replace the current 3 A Pi supply with a proper 5 V/5 A supply before unattended operation;
 - add member/admin authentication and ownership rules in the parent application as the final phase.
 
-Automated tests use fake printers and mock slicing. They verify orchestration logic, not real printer firmware or physical safety.
+Automated tests still use fake printers and mock slicing for repeatability. Physical evidence currently covers the A1 Mini happy path only; it does not prove every firmware, fault, restart, or P1S path.
 
 ## Security boundary
 
@@ -144,7 +148,7 @@ pending -> analysing -> slicing -> queued -> uploading -> starting -> printing
 
 `starting` means the QoS 1 command was acknowledged but the physical start has not yet been proven. Only a newer printer report showing `PREPARE` or `RUNNING` permits `printing`. Timeout, interrupted handoff, or an unexplained return to `IDLE` blocks dispatch in `attention` until an administrator physically inspects and clears the printer.
 
-Completed and failed jobs retain the printer's `current_job_id` and keep `plate_cleared=false`. The next job cannot start until the plate-clear control succeeds.
+Completed jobs, printer-reported failures, and ambiguous handoffs retain the printer's `current_job_id` and keep `plate_cleared=false`. Deterministic failures before any physical start may safely release the slot. A physically involved printer cannot accept the next job until the plate-clear control succeeds.
 
 ## Routing
 
@@ -179,6 +183,7 @@ SQLite runs in WAL mode with foreign keys, a 30-second busy timeout, and `synchr
 | `GET` | `/api/jobs/{id}/logs` | Job events | member-owned/admin |
 | `GET` | `/api/printers` | Live and durable printer state | member read/admin |
 | `POST` | `/api/printers/{id}/plate-cleared` | Resolve physical plate state | admin |
+| `POST` | `/api/printers/{id}/acknowledge-idle` | Acknowledge an inspected, stale jobless `FAILED` state | admin |
 | `GET` | `/api/printers/{id}/history` | Printer history | admin |
 | `GET` | `/api/logs/all` | Structured system events | admin |
 | `GET` | `/api/health` | Dependency readiness | operations |
@@ -194,11 +199,11 @@ backend/core/                analysis, slicing, MQTT/FTPS, queue, maintenance
 backend/db/                  SQLAlchemy models, transactions, SQLite backup
 backend/email/               escaped lifecycle email templates
 deploy/bambubabu.service     hardened systemd template
-docs/                        implementation status and routing specification
+docs/                        prototype checkpoint, implementation status, routing specification
 frontend/                    dependency-free dashboard
 scripts/                     installer, identity capture, secret check
 tests/                       API, printer, queue, routing, storage tests
 requirements.lock            hash-locked production dependency graph
 ```
 
-For internals and invariants, read [TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md). For operational failures, read [TROUBLESHOOT.md](TROUBLESHOOT.md). The evidence-backed remaining work is tracked in [docs/implementation_plan.md](docs/implementation_plan.md).
+Start with [docs/prototype_status.md](docs/prototype_status.md) when resuming the live prototype. For internals and invariants, read [TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md). For operational failures, read [TROUBLESHOOT.md](TROUBLESHOOT.md). The evidence-backed remaining work is tracked in [docs/implementation_plan.md](docs/implementation_plan.md).

@@ -1,6 +1,6 @@
 # Printer selection and fallback specification
 
-Last reconciled with `backend/core/complexity.py` and `backend/core/queue_processor.py`: 2026-07-23.
+Last reconciled with `backend/core/complexity.py`, `backend/core/slicer.py`, and `backend/core/queue_processor.py`: 2026-07-24. Live validation status is tracked in [prototype_status.md](prototype_status.md).
 
 ## Goal
 
@@ -114,13 +114,15 @@ Eligible fallback candidates use the same estimated-time/submission ordering.
 Fallback always starts from the original STL and calls `slice_stl(stl_path, target, ...)`. Output contains the target printer suffix:
 
 ```text
-<job-uuid>-p1s.3mf
-<job-uuid>-a1_mini.3mf
+<job-uuid>-p1s.gcode.3mf
+<job-uuid>-a1_mini.gcode.3mf
 ```
 
-Only after target slicing succeeds does the transaction update `assigned_printer`, store the new path/estimate, and return the job to `queued`. The next queue pass performs normal target dispatch.
+Each archive must contain `Metadata/plate_1.gcode`. The P1S uses the compatible `0.20mm Standard @BBL X1C` process declared by Orca's P1S machine profile; using the P1P-only process fails with CLI return `-17`.
 
-If fallback slicing fails, the job returns to `queued` with its original assignment and logs `FALLBACK_ABORTED`. It does not become failed merely because opportunistic fallback was unavailable.
+Only after target slicing and printable-archive validation succeed does the transaction update `assigned_printer`, store the new path/estimate, and return the job to `queued`. The next queue pass performs normal target dispatch.
+
+If fallback slicing fails, the job returns to `queued` with its original assignment and logs `FALLBACK_ABORTED`. A durable error marker suppresses further fallback attempts for that job, preventing a polling-loop retry storm. The already-valid original-printer archive remains eligible when its preferred printer becomes available.
 
 ### No-steal rule
 
@@ -205,11 +207,15 @@ Automated tests assert that:
 - an available preferred printer prevents fallback stealing;
 - fallback calls the slicer with the target printer;
 - successful fallback updates assignment and returns to `queued`;
+- failed fallback returns to the original queue and is not retried repeatedly;
+- P1S resolves to its compatible process and every real slice is validated as printable;
 - printer handoff failure cannot become `printing`;
 - ambiguous start retains printer ownership and plate blocking;
 - atomic transitions prevent cancellation or competing workers from reviving/stealing a job.
 
 ## Known limitations and future tuning
+
+Real slicing has been validated for both profiles and one A1 Mini physical print is proven. A physical P1S job and a physical cross-printer fallback are still pending; neither should be inferred from unit tests or archive inspection alone.
 
 - Axis-aligned bounds do not optimize model orientation.
 - Face-count overhang ratio is affected by tessellation density; surface-area weighting would be more stable.
@@ -217,5 +223,6 @@ Automated tests assert that:
 - Shortest-job-first can delay a long job under sustained small-job load; an aging/fairness term may be needed with production traffic.
 - Build-volume maxima do not include configurable safety margins or exclusion zones.
 - Real duration is parsed from Orca output when available; a missing estimate sorts after estimated jobs.
+- Filament availability, spool identity, plate selection, nozzle wear, maintenance lockout, and printer-specific exclusion zones are not routing inputs yet.
 
 Any formula or threshold change must update this document and add tests for boundary values, especially exact threshold equality and exact build-volume fits.
