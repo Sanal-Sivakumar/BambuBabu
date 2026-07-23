@@ -96,12 +96,19 @@ def test_restart_retries_safe_states_and_quarantines_handoff():
         starting = create_job(
             db, "b.stl", status=JobStatus.STARTING, printer=PrinterID.P1S
         )
-        analysing_id, starting_id = analysing.id, starting.id
+        completed = create_job(db, "c.stl", status=JobStatus.COMPLETED)
+        completed.print_progress = 99
+        analysing_id, starting_id, completed_id = (
+            analysing.id,
+            starting.id,
+            completed.id,
+        )
     processor = QueueProcessor(FakeManager())
     processor.reconcile_interrupted_jobs()
     with SessionLocal() as db:
         assert crud.get_job(db, analysing_id).status == JobStatus.PENDING
         assert crud.get_job(db, starting_id).status == JobStatus.ATTENTION
+        assert crud.get_job(db, completed_id).print_progress == 100
         assert crud.get_printer_state(db, PrinterID.P1S).current_job_id == starting_id
     processor._slicer_executor.shutdown(wait=False, cancel_futures=True)
     processor._dispatch_executor.shutdown(wait=False, cancel_futures=True)

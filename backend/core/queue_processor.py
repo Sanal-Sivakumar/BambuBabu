@@ -120,6 +120,13 @@ class QueueProcessor:
                         status=PrinterStatus.PRINTING,
                     )
 
+            # Firmware commonly reports 99 immediately before FINISH. A job
+            # already committed as completed is authoritative and must not
+            # retain misleading historical progress after a restart.
+            for job in crud.get_jobs_by_status(db, JobStatus.COMPLETED):
+                if job.print_progress != 100:
+                    crud.update_job_progress(db, job.id, 100)
+
     def _loop(self) -> None:
         while self._running:
             try:
