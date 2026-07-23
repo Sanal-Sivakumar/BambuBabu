@@ -165,6 +165,8 @@ Before a start command, the latest live state must be `idle`. The client records
 
 Some firmware retains the last `FAILED` value after the printer has physically returned to an idle screen. BambuBabu never converts that state automatically. A guarded operator acknowledgement is available only for a connected, jobless printer with a confirmed-clear plate. The acknowledgement suppresses the stale value, but a new start attempt immediately restores strict `FAILED` handling.
 
+`FINISH` is an authoritative completion event and sets the job progress to 100%. The live printer becomes `idle`, while durable `current_job_id` and `plate_cleared=false` continue blocking dispatch until a human confirms physical removal. Clearing the plate releases that durable ownership; a retained firmware `FINISH` value cannot block the next start.
+
 ### FTPS
 
 Sliced files upload to implicit FTPS port 990 with curl. The access code is passed through curl's stdin configuration, not process arguments. The remote filename is URL-quoted, argv is separated, and shell interpretation is disabled.

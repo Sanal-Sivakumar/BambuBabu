@@ -197,6 +197,20 @@ def test_stale_mqtt_disconnect_cannot_overwrite_current_connection():
     assert printer.status == "idle"
 
 
+def test_finish_report_returns_live_client_to_idle():
+    printer = make_printer()
+    printer._connected = True
+    printer.status = "printing"
+    printer.gcode_state = "RUNNING"
+
+    printer._handle_print({"gcode_state": "FINISH", "mc_percent": 100})
+
+    snapshot = printer.snapshot()
+    assert snapshot["status"] == "idle"
+    assert snapshot["gcode_state"] == "FINISH"
+    assert snapshot["progress"] == 100
+
+
 def test_initial_status_request_runs_outside_mqtt_callback():
     printer = make_printer()
     client = FakeClient()

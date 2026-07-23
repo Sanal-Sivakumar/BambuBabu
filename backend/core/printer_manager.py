@@ -196,6 +196,7 @@ class PrinterManager:
         self, db, printer_id: PrinterID, job_id: str, expected: JobStatus
     ) -> None:
         crud.transition_job_status(db, job_id, expected, JobStatus.COMPLETED)
+        crud.update_job_progress(db, job_id, 100)
         # Keep current_job_id until physical clearance so the completed job is traceable.
         crud.update_printer_state(
             db,

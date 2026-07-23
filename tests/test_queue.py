@@ -219,6 +219,7 @@ def test_finish_keeps_plate_blocked_until_clearance():
         job = crud.get_job(db, job_id)
         state = crud.get_printer_state(db, PrinterID.P1S)
         assert job.status == JobStatus.COMPLETED
+        assert job.print_progress == 100
         assert state.current_job_id == job_id
         assert state.plate_cleared is False
 

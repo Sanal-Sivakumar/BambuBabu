@@ -394,7 +394,11 @@ class BambuPrinter:
             "RUNNING": "printing",
             "PAUSE": "paused",
             "FAILED": "error",
-            "FINISH": "finished",
+            # FINISH is an authoritative completion event, but the physical
+            # printer is available again. Durable plate_cleared/current_job_id
+            # state remains the dispatch interlock until a human removes the
+            # model, so the live client must return to idle for the next start.
+            "FINISH": "idle",
         }
         with self._condition:
             has_reported_state = "gcode_state" in report

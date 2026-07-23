@@ -151,6 +151,8 @@ If the physical screen is idle with no error but MQTT retains `FAILED`, use the 
 
 Plate clearance is rejected while durable printer/job state is `printing`, `paused`, or `starting`. Restore MQTT connectivity and reconcile the real printer state first. The button is an assertion that a human removed the model and the plate is safe; it is not a generic queue-unblock button.
 
+After `FINISH`, the API intentionally reports the live printer as `idle`, but `plate_cleared=false` and `current_job_id` still block dispatch. Once the model is physically removed and Plate Cleared succeeds, the retained firmware `FINISH` event does not prevent the next job from starting.
+
 ## OrcaSlicer is missing or fails startup validation
 
 Expected production paths are:
