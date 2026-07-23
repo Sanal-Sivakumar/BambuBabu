@@ -82,8 +82,13 @@ class BambuPrinter:
         self._shutdown = True
         client = self._client
         if client:
-            client.loop_stop()
-            client.disconnect()
+            # Ask the broker to close first. Paho's loop_stop waits for the
+            # network thread, which can otherwise remain blocked on an open
+            # connection until systemd's stop timeout kills the service.
+            try:
+                client.disconnect()
+            finally:
+                client.loop_stop()
         with self._condition:
             self._connected = False
             self.status = "offline"

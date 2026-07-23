@@ -157,7 +157,7 @@ Orca runs through `xvfb-run`, with an argument array, `shell=False`, captured ou
 
 Paho MQTT connects to port 8883 using TLS 1.2+ behavior from Python's default context. The context trusts the explicitly captured device certificate, requires certificate validation, and disables hostname comparison because the LAN device certificate is not issued for its local IP. The access code is the MQTT password and is held as a `SecretStr` in configuration.
 
-Reconnect attempts stop and replace the previous Paho client before creating another. Connect/disconnect callbacks are ignored unless they belong to the current client, so a delayed callback from an old socket cannot mark a newer connection offline.
+Reconnect attempts stop and replace the previous Paho client before creating another. Shutdown requests broker disconnect before stopping Paho's network loop, preventing an open MQTT socket from consuming the systemd stop timeout. Connect/disconnect callbacks are ignored unless they belong to the current client, so a delayed callback from an old socket cannot mark a newer connection offline.
 
 Control messages publish to `device/<serial>/request` with QoS 1. A publish fails unless the client is connected, the broker accepts the publish, and `wait_for_publish()` confirms it within `MQTT_PUBLISH_TIMEOUT_SECONDS`.
 

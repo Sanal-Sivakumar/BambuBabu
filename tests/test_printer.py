@@ -146,3 +146,23 @@ def test_initial_status_request_runs_outside_mqtt_callback():
     printer._on_connect(client, None, None, 0)
 
     assert requested.wait(timeout=1)
+
+
+def test_disconnect_requests_broker_shutdown_before_stopping_loop():
+    class OrderedClient:
+        def __init__(self):
+            self.calls = []
+
+        def disconnect(self):
+            self.calls.append("disconnect")
+
+        def loop_stop(self):
+            self.calls.append("loop_stop")
+
+    printer = make_printer()
+    client = OrderedClient()
+    printer._client = client
+
+    printer.disconnect()
+
+    assert client.calls == ["disconnect", "loop_stop"]
