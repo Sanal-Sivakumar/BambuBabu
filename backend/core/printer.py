@@ -293,6 +293,21 @@ class BambuPrinter:
         topic = f"device/{self.serial}/report"
         client.subscribe(topic, qos=1)
         log.info(f"[{self.printer_id}] MQTT connected; subscribed to {topic}")
+        # Do not wait for a QoS acknowledgement inside Paho's network callback.
+        # The callback thread must remain free to receive the PUBACK itself.
+        threading.Thread(
+            target=self._request_status_after_connect,
+            args=(client,),
+            daemon=True,
+            name=f"status-request-{self.printer_id}",
+        ).start()
+
+    def _request_status_after_connect(self, client) -> None:
+        """Request a report outside Paho's network callback thread."""
+        time.sleep(0.05)
+        with self._condition:
+            if client is not self._client or not self._connected:
+                return
         try:
             self.request_status()
         except RuntimeError as exc:

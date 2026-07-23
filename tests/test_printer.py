@@ -24,6 +24,9 @@ class PublishInfo:
 
 
 class FakeClient:
+    def subscribe(self, *_args, **_kwargs):
+        return (mqtt.MQTT_ERR_SUCCESS, 1)
+
     def publish(self, *_args, **_kwargs):
         return PublishInfo()
 
@@ -128,3 +131,18 @@ def test_stale_mqtt_disconnect_cannot_overwrite_current_connection():
 
     assert printer._connected is True
     assert printer.status == "idle"
+
+
+def test_initial_status_request_runs_outside_mqtt_callback():
+    printer = make_printer()
+    client = FakeClient()
+    requested = threading.Event()
+    printer._client = client
+
+    def request_status():
+        requested.set()
+
+    printer.request_status = request_status
+    printer._on_connect(client, None, None, 0)
+
+    assert requested.wait(timeout=1)
