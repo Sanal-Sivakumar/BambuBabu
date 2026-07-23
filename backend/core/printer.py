@@ -76,6 +76,21 @@ class BambuFTP(ftplib.FTP_TLS):
         _, port = super().makepasv()
         return self._force_host, port
 
+    def ntransfercmd(self, cmd, rest=None):
+        """
+        Override to enforce TLS session reuse for the data connection,
+        which is required by newer Bambu Lab firmware. Without this,
+        the printer will reject the data connection and time out.
+        """
+        conn, size = super().ntransfercmd(cmd, rest)
+        if self._prot_p:
+            conn = self.context.wrap_socket(
+                conn,
+                server_hostname=self.host,
+                session=self.sock.session
+            )
+        return conn, size
+
 
 class BambuPrinter:
     """
