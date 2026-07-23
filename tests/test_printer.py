@@ -166,6 +166,8 @@ def test_acknowledged_stale_failure_is_idle_until_next_start():
 
     snapshot = printer.acknowledge_physically_idle()
     assert snapshot["status"] == "idle"
+    printer._handle_print({"nozzle_temper": 30})
+    assert printer.snapshot()["gcode_state"] == "IDLE"
     printer._handle_print({"gcode_state": "FAILED"})
     assert printer.snapshot()["gcode_state"] == "IDLE"
 

@@ -53,6 +53,12 @@ def test_fit_check_uses_target_dimensions():
     assert complexity.can_fit_on_printer(bbox, PrinterID.A1_MINI) is False
 
 
+def test_p1s_uses_its_declared_compatible_process_profile(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "SLICER_PROFILES_DIR", tmp_path)
+    _machine, process, _filament = slicer._profile_paths(PrinterID.P1S)
+    assert process.name == "0.20mm Standard @BBL X1C.json"
+
+
 def test_mock_slice_names_output_for_target_printer(tmp_path, monkeypatch):
     source = tmp_path / "job-id.stl"
     source.write_bytes(binary_stl())

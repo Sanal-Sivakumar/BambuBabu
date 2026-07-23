@@ -397,6 +397,7 @@ class BambuPrinter:
             "FINISH": "finished",
         }
         with self._condition:
+            has_reported_state = "gcode_state" in report
             reported_state = report.get("gcode_state", self.gcode_state)
             if reported_state == "FAILED" and self._failed_report_acknowledged:
                 # Bambu firmware can retain the last FAILED state after the
@@ -406,7 +407,7 @@ class BambuPrinter:
                 gcode_state = "IDLE"
             else:
                 gcode_state = reported_state
-                if reported_state != "FAILED":
+                if has_reported_state and reported_state != "FAILED":
                     self._failed_report_acknowledged = False
             # SQLite persistence uses naive UTC for compatibility with existing rows.
             self.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)

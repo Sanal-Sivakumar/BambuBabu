@@ -36,7 +36,10 @@ def _profile_paths(printer_id: PrinterID) -> tuple[Path, Path, Path]:
         PrinterID.A1_MINI: root / "machine/Bambu Lab A1 mini 0.4 nozzle.json",
     }[printer_id]
     process = {
-        PrinterID.P1S: root / "process/0.20mm Standard @BBL P1P.json",
+        # Orca's P1S machine preset declares the X1C process as its default.
+        # The similarly named P1P process explicitly restricts compatibility
+        # to the P1P and makes the CLI abort with return -17 for a P1S.
+        PrinterID.P1S: root / "process/0.20mm Standard @BBL X1C.json",
         PrinterID.A1_MINI: root / "process/0.20mm Standard @BBL A1M.json",
     }[printer_id]
     filament = {
