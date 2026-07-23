@@ -93,7 +93,6 @@ def _orca_slice(stl_path: Path, output_file: Path,
         "--server-args=-screen 0 1024x768x24",
         settings.ORCA_SLICER_PATH,
         "--slice", "0",
-        "--no-check",                        # Skip G-code validation checks
         "--export-3mf", str(output_file),    # Output sliced 3MF with embedded gcode
     ]
 
