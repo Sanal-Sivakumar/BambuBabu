@@ -215,6 +215,8 @@ class Settings(BaseSettings):
                 )
             if which("xvfb-run") is None:
                 raise RuntimeError("xvfb-run is required for headless slicing")
+            if which("xauth") is None:
+                raise RuntimeError("xauth is required by xvfb-run for headless slicing")
 
 
 settings = Settings()

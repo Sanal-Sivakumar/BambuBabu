@@ -70,6 +70,7 @@ def health():
         settings.ORCA_SLICER_PATH.is_file()
         and settings.SLICER_PROFILES_DIR.is_dir()
         and which("xvfb-run") is not None
+        and which("xauth") is not None
     )
     checks = {
         "database": database_is_ready(),

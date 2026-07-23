@@ -125,6 +125,8 @@ def _orca_slice(
     except FileNotFoundError as exc:
         if "xvfb-run" in str(exc):
             raise RuntimeError("xvfb-run not found. Run: sudo apt install xvfb -y")
+        if "xauth" in str(exc):
+            raise RuntimeError("xauth not found. Run: sudo apt install xauth -y")
         raise RuntimeError(
             f"OrcaSlicer not found at '{settings.ORCA_SLICER_PATH}'. "
             "Check ORCA_SLICER_PATH in your .env file."
@@ -143,9 +145,12 @@ def _orca_slice(
         log.debug(f"[{printer_id}] stderr: {result.stderr[:400]}")
 
     if result.returncode != 0:
-        log.error(f"[{printer_id}] OrcaSlicer failed:\n{result.stderr[:600]}")
+        detail = (result.stderr or result.stdout).strip()[:600]
+        if not detail:
+            detail = "no diagnostic output; verify xvfb-run, xauth, and the AppRun CLI manually"
+        log.error(f"[{printer_id}] OrcaSlicer failed:\n{detail}")
         raise RuntimeError(
-            f"OrcaSlicer failed (exit {result.returncode}): {result.stderr[:200]}"
+            f"OrcaSlicer failed (exit {result.returncode}): {detail[:200]}"
         )
 
     if not output_file.exists():

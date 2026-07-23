@@ -162,9 +162,17 @@ Check them:
 test -x /opt/bambubabu/orca/appimage-root/AppRun
 test -d /opt/bambubabu/orca/appimage-root/resources/profiles/BBL
 command -v xvfb-run
+command -v xauth
 ```
 
 Re-run `scripts/install_pi.sh` if the versioned installation is incomplete. The installer verifies the official ARM64 artifact checksum before extraction.
+
+On minimal Ubuntu images, install both headless display helpers explicitly:
+
+```bash
+sudo apt-get install -y xvfb xauth
+sudo systemctl restart bambubabu
+```
 
 ## Orca reports missing preset/inheritance errors
 
