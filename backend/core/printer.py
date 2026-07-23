@@ -172,8 +172,15 @@ class BambuPrinter:
                 "sequence_id": str(int(time.time() * 1000)),
                 "command": "project_file",
                 "param": "Metadata/plate_1.gcode",
+                "project_id": "0",
+                "profile_id": "0",
+                "task_id": "0",
+                "subtask_id": "0",
                 "subtask_name": job_name,
+                "file": filename_3mf,
                 "url": f"ftp:///{filename_3mf}",
+                "md5": "",
+                "plate_idx": 0,
                 "bed_type": "auto",
                 "timelapse": False,
                 "bed_leveling": True,
@@ -181,6 +188,7 @@ class BambuPrinter:
                 "vibration_cali": True,
                 "layer_inspect": False,
                 "use_ams": False,
+                "ams_mapping": [],
             }
         }
         try:

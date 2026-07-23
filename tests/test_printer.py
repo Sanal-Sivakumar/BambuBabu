@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -95,7 +96,8 @@ def test_ftps_keeps_access_code_out_of_process_arguments(tmp_path, monkeypatch):
 
 def test_start_waits_for_authoritative_running_report():
     printer = make_printer()
-    printer._client = FakeClient()
+    client = FakeClient()
+    printer._client = client
     printer._connected = True
     printer.status = "idle"
     printer.gcode_state = "IDLE"
@@ -110,6 +112,10 @@ def test_start_waits_for_authoritative_running_report():
     result = printer.start_print_and_confirm("part.3mf", "job", timeout=1)
     thread.join()
     assert result["gcode_state"] == "RUNNING"
+    payload = json.loads(client.publishes[0][0][1])["print"]
+    assert payload["file"] == "part.3mf"
+    assert payload["url"] == "ftp:///part.3mf"
+    assert payload["subtask_id"] == "0"
 
 
 def test_published_but_unconfirmed_start_raises_attention_signal():

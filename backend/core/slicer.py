@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import shutil
 import tempfile
+import zipfile
 
 # Subprocesses use fixed argv with shell disabled; no command text is user supplied.
 import subprocess  # nosec B404
@@ -61,7 +62,7 @@ def slice_stl(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_file = output_dir / f"{stl_path.stem}-{printer_id.value}.3mf"
+    output_file = output_dir / f"{stl_path.stem}-{printer_id.value}.gcode.3mf"
 
     if settings.MOCK_SLICER:
         return _mock_slice(stl_path, output_file)
@@ -169,6 +170,7 @@ def _orca_slice(
 
     if not output_file.exists():
         raise RuntimeError(f"OrcaSlicer produced no output file: {output_file}")
+    _validate_printable_project(output_file)
 
     estimated_minutes = _parse_estimated_time(result.stdout + result.stderr)
     log.info(
@@ -176,6 +178,18 @@ def _orca_slice(
         f"(~{estimated_minutes or '?'} min)"
     )
     return output_file, estimated_minutes
+
+
+def _validate_printable_project(output_file: Path) -> None:
+    """Reject archives that cannot be launched by Bambu ``project_file``."""
+    try:
+        with zipfile.ZipFile(output_file) as project:
+            if "Metadata/plate_1.gcode" not in project.namelist():
+                raise RuntimeError(
+                    "Slicer output has no Metadata/plate_1.gcode; refusing upload"
+                )
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError("Slicer output is not a valid printable 3MF archive") from exc
 
 
 def _parse_estimated_time(output: str) -> Optional[int]:

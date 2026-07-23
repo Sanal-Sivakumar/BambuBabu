@@ -72,7 +72,7 @@ The supported interpreter is CPython 3.12. `.python-version` declares that devel
 | `pending` | upload committed; waiting for analysis |
 | `analysing` | trimesh metrics are being computed |
 | `slicing` | OrcaSlicer or fallback re-slicing is in progress |
-| `queued` | a printer-specific `.3mf` is ready |
+| `queued` | a printer-specific printable `.gcode.3mf` is ready |
 | `uploading` | FTPS handoff owns the printer slot |
 | `starting` | MQTT command was acknowledged; physical start is unproven |
 | `printing` | a newer printer report confirmed `PREPARE`/`RUNNING` |
@@ -147,7 +147,7 @@ After verifying Ubuntu 24.04 ARM64 and Python 3.12, the production installer dow
 | P1S | `Bambu Lab P1S 0.4 nozzle.json` | `0.20mm Standard @BBL P1P.json` | `Bambu PLA Basic @base.json` |
 | A1 Mini | `Bambu Lab A1 mini 0.4 nozzle.json` | `0.20mm Standard @BBL A1M.json` | `Bambu PLA Basic @BBL A1M.json` |
 
-Orca runs through `xvfb-run`, with an argument array, `shell=False`, captured output, and a ten-minute timeout. Ubuntu also needs `xauth`, `libopengl0`, and `libglu1-mesa`; startup and health validate these dependencies. The systemd unit creates a private `/run/bambubabu` directory and supplies it as `XDG_RUNTIME_DIR`. Each Orca invocation receives its own temporary writable directory below `logs/orca`: Orca writes numbered diagnostics and lock-like state relative to its working directory, so sharing one directory can cause `return -17`/`EEXIST` failures. This preserves the read-only checkout and isolates retries/fallback profiles. Output is named `<job-uuid>-<printer>.3mf`, which prevents a fallback slice from being mistaken for the preferred-printer slice. Missing profiles, runtime dependencies, or output fail closed.
+Orca runs through `xvfb-run`, with an argument array, `shell=False`, captured output, and a ten-minute timeout. Ubuntu also needs `xauth`, `libopengl0`, and `libglu1-mesa`; startup and health validate these dependencies. The systemd unit creates a private `/run/bambubabu` directory and supplies it as `XDG_RUNTIME_DIR`. Each Orca invocation receives its own temporary writable directory below `logs/orca`: Orca writes numbered diagnostics and lock-like state relative to its working directory, so sharing one directory can cause `return -17`/`EEXIST` failures. This preserves the read-only checkout and isolates retries/fallback profiles. Output is named `<job-uuid>-<printer>.gcode.3mf`, then inspected as a ZIP archive for `Metadata/plate_1.gcode` before it is eligible for upload. This prevents a generic/non-printable 3MF from reaching the printer and prevents a fallback slice from being mistaken for the preferred-printer slice. Missing profiles, runtime dependencies, malformed output, or an absent plate G-code entry fail closed.
 
 `MOCK_SLICER=true` only copies the STL and is for orchestration tests. Startup forbids mock slicing when live printer integration is enabled.
 

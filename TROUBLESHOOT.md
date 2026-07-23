@@ -205,6 +205,8 @@ test -f "$profiles/process/0.20mm Standard @BBL A1M.json"
 
 Fallback routing always re-slices with the target profile. Never rename or reuse another printer's `.3mf`.
 
+Before upload, BambuBabu requires a printable `.gcode.3mf` archive containing `Metadata/plate_1.gcode`. If this validation fails, inspect the Orca CLI output and preset tree; do not upload the archive manually or attempt an MQTT start command.
+
 ## Upload errors
 
 | HTTP status | Cause | Action |
