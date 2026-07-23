@@ -157,6 +157,30 @@ def test_authoritative_failure_rejects_start():
     thread.join()
 
 
+def test_acknowledged_stale_failure_is_idle_until_next_start():
+    printer = make_printer()
+    printer._client = FakeClient()
+    printer._connected = True
+    printer.status = "error"
+    printer.gcode_state = "FAILED"
+
+    snapshot = printer.acknowledge_physically_idle()
+    assert snapshot["status"] == "idle"
+    printer._handle_print({"gcode_state": "FAILED"})
+    assert printer.snapshot()["gcode_state"] == "IDLE"
+
+    thread = threading.Thread(
+        target=lambda: (
+            time.sleep(0.02),
+            printer._handle_print({"gcode_state": "FAILED"}),
+        )
+    )
+    thread.start()
+    with pytest.raises(PrintStartRejected):
+        printer.start_print_and_confirm("part.gcode.3mf", "job", timeout=1)
+    thread.join()
+
+
 def test_stale_mqtt_disconnect_cannot_overwrite_current_connection():
     printer = make_printer()
     current_client = FakeClient()

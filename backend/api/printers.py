@@ -4,7 +4,10 @@ GET  /api/printers               Live status of both printers
 POST /api/printers/{id}/plate-cleared   Admin clears the plate
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.core.printer_manager import printer_manager
@@ -17,6 +20,10 @@ log = get_logger("bambubabu.api.printers")
 router = APIRouter(prefix="/api/printers", tags=["printers"])
 
 VALID_PRINTER_IDS = {p.value for p in PrinterID}
+
+
+class IdleAcknowledgement(BaseModel):
+    physically_idle: Literal[True]
 
 
 @router.get("")
@@ -117,6 +124,46 @@ def mark_plate_cleared(
 
     log.info(f"Plate cleared on {printer_id} — next job can now start")
     return {"message": f"Plate cleared on {printer_id}. Next job will start shortly."}
+
+
+@router.post("/{printer_id}/acknowledge-idle")
+def acknowledge_physically_idle(
+    printer_id: str,
+    acknowledgement: IdleAcknowledgement,
+    db: Session = Depends(get_db_dep),
+):
+    """Clear a stale FAILED report only after explicit physical inspection."""
+    if printer_id not in VALID_PRINTER_IDS:
+        raise HTTPException(400, f"Unknown printer: {printer_id}")
+    pid = PrinterID(printer_id)
+    state = crud.get_printer_state(db, pid)
+    if not state:
+        raise HTTPException(404, "Printer state not found")
+    if state.current_job_id:
+        raise HTTPException(409, "Cannot acknowledge idle while a job owns the printer")
+    if not state.plate_cleared:
+        raise HTTPException(409, "Physically clear and confirm the plate first")
+
+    printer = printer_manager.get_printer(pid)
+    if printer is None:
+        raise HTTPException(503, "Printer integration is unavailable")
+    try:
+        snapshot = printer.acknowledge_physically_idle()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    crud.add_log(
+        db,
+        "PRINTER_IDLE_ACKNOWLEDGED",
+        f"Admin physically inspected {printer_id} and acknowledged stale FAILED state",
+        printer_id=printer_id,
+    )
+    db.commit()
+    return {
+        "message": f"{printer_id} acknowledged as physically idle",
+        "status": snapshot["status"],
+        "gcode_state": snapshot["gcode_state"],
+    }
 
 
 @router.get("/{printer_id}/history")

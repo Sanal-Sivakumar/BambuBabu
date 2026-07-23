@@ -163,6 +163,8 @@ The non-mutating `pushall` status refresh publishes at QoS 0 because Bambu LAN b
 
 Before a start command, the latest live state must be `idle`. The client records the MQTT report version, publishes `project_file`, then waits for a strictly newer report showing `PREPARE`, `RUNNING`, or mapped `printing`. `FAILED` raises a rejected-start error. A missing QoS 1 acknowledgement, a report timeout, or an interrupted handoff raises an unconfirmed-start error because the printer may already be acting on the command. The queue maps every ambiguous start error to `attention`, never `printing` or ordinary failure.
 
+Some firmware retains the last `FAILED` value after the printer has physically returned to an idle screen. BambuBabu never converts that state automatically. A guarded operator acknowledgement is available only for a connected, jobless printer with a confirmed-clear plate. The acknowledgement suppresses the stale value, but a new start attempt immediately restores strict `FAILED` handling.
+
 ### FTPS
 
 Sliced files upload to implicit FTPS port 990 with curl. The access code is passed through curl's stdin configuration, not process arguments. The remote filename is URL-quoted, argv is separated, and shell interpretation is disabled.

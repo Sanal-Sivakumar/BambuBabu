@@ -302,6 +302,10 @@ function renderPrinters(printers) {
     if (btn) {
       btn.addEventListener("click", () => clearPlate(p.printer_id));
     }
+    const acknowledgeBtn = document.getElementById(`idle-btn-${p.printer_id}`);
+    if (acknowledgeBtn) {
+      acknowledgeBtn.addEventListener("click", () => acknowledgeIdle(p.printer_id));
+    }
   });
 }
 
@@ -322,6 +326,15 @@ function printerCard(p) {
     ? `<div class="plate-btn-wrap">
          <button class="plate-clear-btn" id="plate-btn-${p.printer_id}">
            🗑️ Plate Cleared — Start Next Job
+         </button>
+       </div>`
+    : "";
+
+  const idleAcknowledgeSection = p.connected && p.status === "error" &&
+      p.gcode_state === "FAILED" && !p.current_job_id && p.plate_cleared
+    ? `<div class="plate-btn-wrap">
+         <button class="plate-clear-btn" id="idle-btn-${p.printer_id}">
+           ✓ I Inspected It — Printer Is Idle
          </button>
        </div>`
     : "";
@@ -379,6 +392,7 @@ function printerCard(p) {
 
       ${progress}
       ${plateBtnSection}
+      ${idleAcknowledgeSection}
     </div>
   `;
 }
@@ -397,6 +411,28 @@ async function clearPlate(printerId) {
       toast(`❌ ${data.detail}`, "error");
     }
   } catch (err) {
+    toast("Network error", "error");
+  }
+}
+
+async function acknowledgeIdle(printerId) {
+  if (!window.confirm(
+    "Confirm the printer is physically idle, cool, motionless, has no active job, and its plate is clear."
+  )) return;
+  try {
+    const res = await fetch(`${API}/api/printers/${printerId}/acknowledge-idle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ physically_idle: true }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      toast(`✅ ${data.message}`, "success");
+      await fetchPrinters();
+    } else {
+      toast(`❌ ${data.detail}`, "error");
+    }
+  } catch (_err) {
     toast("Network error", "error");
   }
 }

@@ -131,6 +131,40 @@ def test_plate_clear_refuses_active_print(client):
     assert client.post("/api/printers/p1s/plate-cleared").status_code == 409
 
 
+def test_idle_acknowledgement_requires_jobless_clear_failed_printer(client, monkeypatch):
+    class FailedPrinter:
+        def acknowledge_physically_idle(self):
+            return {"status": "idle", "gcode_state": "IDLE"}
+
+    from backend.api import printers as printers_api
+
+    monkeypatch.setattr(
+        printers_api.printer_manager,
+        "get_printer",
+        lambda _printer_id: FailedPrinter(),
+    )
+    with SessionLocal.begin() as db:
+        crud.update_printer_state(
+            db,
+            PrinterID.A1_MINI,
+            status=PrinterStatus.ERROR,
+            plate_cleared=True,
+            current_job_id=None,
+        )
+
+    response = client.post(
+        "/api/printers/a1_mini/acknowledge-idle",
+        json={"physically_idle": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["gcode_state"] == "IDLE"
+
+    assert client.post(
+        "/api/printers/a1_mini/acknowledge-idle",
+        json={"physically_idle": False},
+    ).status_code == 422
+
+
 def test_security_boundary_is_explicit_and_cors_is_not_wildcard(client):
     response = client.get("/api/health")
     assert response.json()["authentication"] == "external-pending"

@@ -66,6 +66,7 @@ class BambuPrinter:
         self._reconnect_thread: Optional[threading.Thread] = None
         self._shutdown = False
         self._report_version = 0
+        self._failed_report_acknowledged = False
 
     def connect(self) -> None:
         self._shutdown = False
@@ -166,6 +167,10 @@ class BambuPrinter:
                     f"gcode_state={self.gcode_state})"
                 )
             baseline_report = self._report_version
+            # A human acknowledgement only clears a stale, jobless FAILED
+            # report. Once a new physical handoff begins, every newer FAILED
+            # report is authoritative again.
+            self._failed_report_acknowledged = False
 
         payload = {
             "print": {
@@ -249,6 +254,24 @@ class BambuPrinter:
     def is_online(self) -> bool:
         with self._condition:
             return self._connected
+
+    def acknowledge_physically_idle(self) -> dict:
+        """Clear a stale jobless FAILED report after physical inspection."""
+        with self._condition:
+            if not self._connected:
+                raise RuntimeError(f"{self.printer_id} MQTT is not connected")
+            if self.status != "error" or self.gcode_state != "FAILED":
+                raise RuntimeError(
+                    f"{self.printer_id} is not in FAILED state "
+                    f"(status={self.status}, gcode_state={self.gcode_state})"
+                )
+            self._failed_report_acknowledged = True
+            self.status = "idle"
+            self.gcode_state = "IDLE"
+            self._condition.notify_all()
+            snapshot = self._snapshot_unlocked()
+        self.on_status_update(self.printer_id, snapshot)
+        return snapshot
 
     def snapshot(self) -> dict:
         with self._condition:
@@ -374,7 +397,17 @@ class BambuPrinter:
             "FINISH": "finished",
         }
         with self._condition:
-            gcode_state = report.get("gcode_state", self.gcode_state)
+            reported_state = report.get("gcode_state", self.gcode_state)
+            if reported_state == "FAILED" and self._failed_report_acknowledged:
+                # Bambu firmware can retain the last FAILED state after the
+                # printer has physically returned to idle. Keep the explicit
+                # operator acknowledgement until a new non-FAILED state or a
+                # new start attempt occurs.
+                gcode_state = "IDLE"
+            else:
+                gcode_state = reported_state
+                if reported_state != "FAILED":
+                    self._failed_report_acknowledged = False
             # SQLite persistence uses naive UTC for compatibility with existing rows.
             self.last_seen = datetime.now(timezone.utc).replace(tzinfo=None)
             self.gcode_state = gcode_state

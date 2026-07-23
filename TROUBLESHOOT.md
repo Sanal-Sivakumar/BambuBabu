@@ -145,6 +145,8 @@ This behavior prevents duplicate prints after an ambiguous command.
 
 The job moves from `printing` to `attention`, printer state becomes error, and `plate_cleared` remains false. This can indicate a firmware/report interruption, manual stop, or lost completion message. Inspect the physical printer before resolving it. BambuBabu will not infer success from `IDLE`.
 
+If the physical screen is idle with no error but MQTT retains `FAILED`, use the Printers tab acknowledgement only after confirming the printer is motionless, has no active job, is cool, and the plate is clear. The action is unavailable while a job owns the printer or the plate is blocked. It does not weaken the next start: any new `FAILED` report rejects that handoff.
+
 ## Plate Cleared returns HTTP 409
 
 Plate clearance is rejected while durable printer/job state is `printing`, `paused`, or `starting`. Restore MQTT connectivity and reconcile the real printer state first. The button is an assertion that a human removed the model and the plate is safe; it is not a generic queue-unblock button.
