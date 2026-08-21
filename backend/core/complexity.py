@@ -92,6 +92,32 @@ def select_printer(analysis: dict) -> tuple[PrinterID | None, str | None]:
     """
     bbox = analysis["bbox"]
     score = analysis["complexity_score"]
+    p1s_enabled = settings.printer_enabled(PrinterID.P1S.value)
+    a1_enabled = settings.printer_enabled(PrinterID.A1_MINI.value)
+
+    if not p1s_enabled and not a1_enabled:
+        return None, "No physical printer is enabled for this deployment."
+
+    if p1s_enabled and not can_fit_on_printer(bbox, PrinterID.P1S):
+        return None, (
+            f"Object ({bbox['x']}×{bbox['y']}×{bbox['z']} mm) "
+            f"exceeds P1S build volume ({settings.P1S_MAX_X}×"
+            f"{settings.P1S_MAX_Y}×{settings.P1S_MAX_Z} mm). "
+            "Cannot print on any enabled printer."
+        )
+
+    if not p1s_enabled:
+        if not can_fit_on_printer(bbox, PrinterID.A1_MINI):
+            return None, (
+                f"Object ({bbox['x']}×{bbox['y']}×{bbox['z']} mm) exceeds the "
+                "enabled A1 Mini build volume. Cannot print on any enabled printer."
+            )
+        log.info("P1S disabled → A1 Mini")
+        return PrinterID.A1_MINI, None
+
+    if not a1_enabled:
+        log.info("A1 Mini disabled → P1S")
+        return PrinterID.P1S, None
 
     # ── Hard size check ────────────────────────────────────────────────────
     if (

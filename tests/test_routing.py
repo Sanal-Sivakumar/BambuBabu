@@ -47,6 +47,26 @@ def test_model_too_large_for_both_is_rejected():
     assert "exceeds P1S build volume" in rejection
 
 
+def test_p1s_only_mode_routes_small_simple_model_to_p1s(monkeypatch):
+    monkeypatch.setattr(settings, "P1S_ENABLED", True)
+    monkeypatch.setattr(settings, "A1_MINI_ENABLED", False)
+    selected, rejection = complexity.select_printer(
+        analysis(bbox={"x": 50, "y": 50, "z": 50}, score=1)
+    )
+    assert selected == PrinterID.P1S
+    assert rejection is None
+
+
+def test_a1_only_mode_rejects_model_that_only_fits_p1s(monkeypatch):
+    monkeypatch.setattr(settings, "P1S_ENABLED", False)
+    monkeypatch.setattr(settings, "A1_MINI_ENABLED", True)
+    selected, rejection = complexity.select_printer(
+        analysis(bbox={"x": 200, "y": 50, "z": 50}, score=1)
+    )
+    assert selected is None
+    assert "enabled A1 Mini build volume" in rejection
+
+
 def test_fit_check_uses_target_dimensions():
     bbox = {"x": 200, "y": 100, "z": 100}
     assert complexity.can_fit_on_printer(bbox, PrinterID.P1S) is True

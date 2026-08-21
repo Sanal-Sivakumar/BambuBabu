@@ -92,7 +92,8 @@ def test_logs_api_matches_frontend_array_contract(client):
     assert response.json()[0]["event"] == "TEST_EVENT"
 
 
-def test_plate_clear_records_completed_job_and_releases_printer(client):
+def test_plate_clear_records_completed_job_and_releases_printer(client, monkeypatch):
+    monkeypatch.setattr(settings, "PRINTERS_ENABLED", True)
     with SessionLocal.begin() as db:
         job = create_job(
             db, "stored.stl", status=JobStatus.COMPLETED, printer=PrinterID.P1S
@@ -132,6 +133,7 @@ def test_plate_clear_refuses_active_print(client):
 
 
 def test_idle_acknowledgement_requires_jobless_clear_failed_printer(client, monkeypatch):
+    monkeypatch.setattr(settings, "PRINTERS_ENABLED", True)
     class FailedPrinter:
         def acknowledge_physically_idle(self):
             return {"status": "idle", "gcode_state": "IDLE"}
@@ -211,4 +213,44 @@ def test_live_printer_config_requires_valid_transport_pin(tmp_path):
         A1_MINI_FTPS_PIN=valid_pin,
     )
     with pytest.raises(RuntimeError, match="P1S_FTPS_PIN"):
+        config.validate_runtime()
+
+
+def test_p1s_only_live_config_does_not_require_a1_credentials(tmp_path, monkeypatch):
+    certificate = tmp_path / "p1s.pem"
+    certificate.write_text("test certificate fixture")
+    app_run = tmp_path / "AppRun"
+    app_run.write_text("fixture")
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    monkeypatch.setattr("backend.config.which", lambda _name: "/usr/bin/fixture")
+    monkeypatch.setattr("backend.config.find_library", lambda _name: "fixture.so")
+    config = Settings(
+        _env_file=None,
+        PRINTERS_ENABLED=True,
+        P1S_ENABLED=True,
+        A1_MINI_ENABLED=False,
+        MOCK_SLICER=False,
+        P1S_IP="192.168.1.10",
+        P1S_SERIAL="P1S-SERIAL",
+        P1S_ACCESS_CODE="12345678",
+        P1S_MQTT_CERT_PATH=str(certificate),
+        P1S_FTPS_PIN="sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        ORCA_SLICER_PATH=app_run,
+        SLICER_PROFILES_DIR=profiles,
+    )
+
+    config.validate_runtime()
+    assert config.enabled_printer_ids == ("p1s",)
+
+
+def test_live_mode_requires_at_least_one_enabled_printer():
+    config = Settings(
+        _env_file=None,
+        PRINTERS_ENABLED=True,
+        P1S_ENABLED=False,
+        A1_MINI_ENABLED=False,
+        MOCK_SLICER=False,
+    )
+    with pytest.raises(RuntimeError, match="at least one enabled"):
         config.validate_runtime()

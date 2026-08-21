@@ -1,6 +1,6 @@
 # Printer selection and fallback specification
 
-Last reconciled with `backend/core/complexity.py`, `backend/core/slicer.py`, and `backend/core/queue_processor.py`: 2026-07-24. Live validation status is tracked in [prototype_status.md](prototype_status.md).
+Last reconciled with `backend/core/complexity.py`, `backend/core/slicer.py`, and `backend/core/queue_processor.py`: 2026-08-21. Live validation status is tracked in [prototype_status.md](prototype_status.md).
 
 ## Goal
 
@@ -43,7 +43,9 @@ Default threshold:
 COMPLEXITY_THRESHOLD=50
 ```
 
-A score strictly greater than the threshold prefers P1S. A score equal to or below the threshold prefers A1 Mini when it fits.
+A score strictly greater than the threshold prefers P1S. A score equal to or below the threshold prefers A1 Mini when it fits and both printers are enabled.
+
+`P1S_ENABLED` and `A1_MINI_ENABLED` are hard topology gates. A disabled printer cannot be selected, connected, dispatched, or used as a fallback target. P1S-only mode sends every fitting model to P1S; A1-only mode rejects models outside the A1 build volume regardless of complexity.
 
 ## Build-volume rules
 
@@ -69,6 +71,8 @@ else:
     prefer A1 Mini
 ```
 
+That decision applies when both printers are enabled. A per-printer enable gate is evaluated first.
+
 No automatic rotation search occurs. A model that would fit only after reorientation can be routed differently or rejected based on its uploaded orientation.
 
 ## Preferred-printer queue order
@@ -90,6 +94,8 @@ plate_cleared == true
 current_job_id is null
 ```
 
+The target must also be enabled. Disabling a printer makes any stale durable `idle` row non-dispatchable.
+
 The queue then atomically changes the job from `queued` to `uploading` and assigns `current_job_id` in the same transaction. If another worker changed the job first, dispatch loses the compare-and-swap and does nothing.
 
 The live printer client separately requires MQTT connectivity and current status `idle` before publishing a start command.
@@ -100,12 +106,13 @@ Fallback is evaluated when a target printer has no directly assigned job to disp
 
 A queued job assigned to the other printer is eligible only if:
 
-1. the target is idle, cleared, and unowned;
-2. the preferred/source printer is not idle, cleared, and unowned;
-3. all stored bounding-box axes are present;
-4. `can_fit_on_printer(bbox, target)` is true;
-5. no slicing worker has already reserved that job;
-6. the job atomically transitions from `queued` to `slicing`.
+1. the target is enabled;
+2. the target is idle, cleared, and unowned;
+3. the preferred/source printer is disabled or is not idle, cleared, and unowned;
+4. all stored bounding-box axes are present;
+5. `can_fit_on_printer(bbox, target)` is true;
+6. no slicing worker has already reserved that job;
+7. the job atomically transitions from `queued` to `slicing`.
 
 Eligible fallback candidates use the same estimated-time/submission ordering.
 
@@ -212,6 +219,7 @@ Automated tests assert that:
 - printer handoff failure cannot become `printing`;
 - ambiguous start retains printer ownership and plate blocking;
 - atomic transitions prevent cancellation or competing workers from reviving/stealing a job.
+- disabled printers are excluded from initial routing, direct dispatch, fallback, and health readiness.
 
 ## Known limitations and future tuning
 

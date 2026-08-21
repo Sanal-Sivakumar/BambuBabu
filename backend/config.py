@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     # Printers. Credentials intentionally have no usable defaults.
     PRINTERS_ENABLED: bool = True
+    P1S_ENABLED: bool = True
     P1S_IP: str = ""
     P1S_SERIAL: str = ""
     P1S_ACCESS_CODE: SecretStr = SecretStr("")
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
     P1S_MAX_Y: int = Field(256, gt=0)
     P1S_MAX_Z: int = Field(256, gt=0)
 
+    A1_MINI_ENABLED: bool = True
     A1_MINI_IP: str = ""
     A1_MINI_SERIAL: str = ""
     A1_MINI_ACCESS_CODE: SecretStr = SecretStr("")
@@ -103,6 +105,34 @@ class Settings(BaseSettings):
         )
         return secret.get_secret_value()
 
+    def printer_enabled(self, printer_id: str) -> bool:
+        """Return whether a physical printer is part of this deployment."""
+        if printer_id == "p1s":
+            return self.P1S_ENABLED
+        if printer_id == "a1_mini":
+            return self.A1_MINI_ENABLED
+        raise ValueError(f"Unknown printer: {printer_id}")
+
+    def live_printer_enabled(self, printer_id: str) -> bool:
+        """Return whether live integration is active for a configured printer."""
+        return self.PRINTERS_ENABLED and self.printer_enabled(printer_id)
+
+    @property
+    def configured_printer_ids(self) -> tuple[str, ...]:
+        return tuple(
+            printer_id
+            for printer_id in ("p1s", "a1_mini")
+            if self.printer_enabled(printer_id)
+        )
+
+    @property
+    def enabled_printer_ids(self) -> tuple[str, ...]:
+        return tuple(
+            printer_id
+            for printer_id in self.configured_printer_ids
+            if self.live_printer_enabled(printer_id)
+        )
+
     def printer_mqtt_cert_path(self, printer_id: str) -> Path:
         value = (
             self.P1S_MQTT_CERT_PATH
@@ -134,19 +164,33 @@ class Settings(BaseSettings):
         if self.PRINTERS_ENABLED:
             if self.MOCK_SLICER:
                 raise RuntimeError("MOCK_SLICER cannot be used with live printers")
+            if not self.configured_printer_ids:
+                raise RuntimeError(
+                    "PRINTERS_ENABLED requires at least one enabled physical printer"
+                )
             missing = []
-            for key, value in {
-                "P1S_IP": self.P1S_IP,
-                "P1S_SERIAL": self.P1S_SERIAL,
-                "P1S_ACCESS_CODE": self.P1S_ACCESS_CODE.get_secret_value(),
-                "P1S_MQTT_CERT_PATH": self.P1S_MQTT_CERT_PATH,
-                "P1S_FTPS_PIN": self.P1S_FTPS_PIN,
-                "A1_MINI_IP": self.A1_MINI_IP,
-                "A1_MINI_SERIAL": self.A1_MINI_SERIAL,
-                "A1_MINI_ACCESS_CODE": self.A1_MINI_ACCESS_CODE.get_secret_value(),
-                "A1_MINI_MQTT_CERT_PATH": self.A1_MINI_MQTT_CERT_PATH,
-                "A1_MINI_FTPS_PIN": self.A1_MINI_FTPS_PIN,
-            }.items():
+            values = {}
+            if self.P1S_ENABLED:
+                values.update(
+                    {
+                        "P1S_IP": self.P1S_IP,
+                        "P1S_SERIAL": self.P1S_SERIAL,
+                        "P1S_ACCESS_CODE": self.P1S_ACCESS_CODE.get_secret_value(),
+                        "P1S_MQTT_CERT_PATH": self.P1S_MQTT_CERT_PATH,
+                        "P1S_FTPS_PIN": self.P1S_FTPS_PIN,
+                    }
+                )
+            if self.A1_MINI_ENABLED:
+                values.update(
+                    {
+                        "A1_MINI_IP": self.A1_MINI_IP,
+                        "A1_MINI_SERIAL": self.A1_MINI_SERIAL,
+                        "A1_MINI_ACCESS_CODE": self.A1_MINI_ACCESS_CODE.get_secret_value(),
+                        "A1_MINI_MQTT_CERT_PATH": self.A1_MINI_MQTT_CERT_PATH,
+                        "A1_MINI_FTPS_PIN": self.A1_MINI_FTPS_PIN,
+                    }
+                )
+            for key, value in values.items():
                 if not value or value.lower() in {"replace_me", "changeme", "example"}:
                     missing.append(key)
             if missing:
@@ -155,10 +199,29 @@ class Settings(BaseSettings):
                     + ", ".join(missing)
                 )
 
-            for printer, access_code in (
-                ("P1S", self.P1S_ACCESS_CODE.get_secret_value()),
-                ("A1_MINI", self.A1_MINI_ACCESS_CODE.get_secret_value()),
-            ):
+            enabled_configs = []
+            if self.P1S_ENABLED:
+                enabled_configs.append(
+                    (
+                        "P1S",
+                        self.P1S_IP,
+                        self.P1S_ACCESS_CODE.get_secret_value(),
+                        self.P1S_MQTT_CERT_PATH,
+                        self.P1S_FTPS_PIN,
+                    )
+                )
+            if self.A1_MINI_ENABLED:
+                enabled_configs.append(
+                    (
+                        "A1_MINI",
+                        self.A1_MINI_IP,
+                        self.A1_MINI_ACCESS_CODE.get_secret_value(),
+                        self.A1_MINI_MQTT_CERT_PATH,
+                        self.A1_MINI_FTPS_PIN,
+                    )
+                )
+
+            for printer, _address, access_code, _cert_path, _pin in enabled_configs:
                 if any(
                     ord(character) < 32 or ord(character) == 127
                     for character in access_code
@@ -167,20 +230,7 @@ class Settings(BaseSettings):
                         f"{printer}_ACCESS_CODE contains control characters"
                     )
 
-            for printer, address, cert_path, pin in (
-                (
-                    "P1S",
-                    self.P1S_IP,
-                    self.P1S_MQTT_CERT_PATH,
-                    self.P1S_FTPS_PIN,
-                ),
-                (
-                    "A1_MINI",
-                    self.A1_MINI_IP,
-                    self.A1_MINI_MQTT_CERT_PATH,
-                    self.A1_MINI_FTPS_PIN,
-                ),
-            ):
+            for printer, address, _access_code, cert_path, pin in enabled_configs:
                 try:
                     parsed = ip_address(address)
                 except ValueError as exc:

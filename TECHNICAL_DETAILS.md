@@ -1,6 +1,6 @@
 # BambuBabu technical reference
 
-Last reconciled with the code and prototype evidence: 2026-07-24. The resumable hardware checkpoint is [docs/prototype_status.md](docs/prototype_status.md).
+Last reconciled with the code and prototype evidence: 2026-08-21. The resumable hardware checkpoint is [docs/prototype_status.md](docs/prototype_status.md).
 
 This document describes the implementation that exists in this repository. It separates enforced invariants from future work and from behavior that still needs physical hardware validation.
 
@@ -133,7 +133,7 @@ Trimesh produces face count, absolute volume, axis-aligned bounding-box extents,
 + 0.20 * min(volume_cm3 / 300, 1) * 100
 ```
 
-Objects outside 256 x 256 x 256 mm are rejected. Objects outside the A1 Mini's 180 x 180 x 180 mm volume are forced to P1S. Otherwise a score above `COMPLEXITY_THRESHOLD` selects P1S and a score at or below it selects A1 Mini.
+`P1S_ENABLED` and `A1_MINI_ENABLED` define the deployed topology. Disabled hardware is excluded from transport creation, health readiness, routing, dispatch, fallback, and physical-state controls. With only P1S enabled, every model that fits its 256 x 256 x 256 mm volume routes to P1S. With both enabled, objects outside the A1 Mini's 180 x 180 x 180 mm volume are forced to P1S; otherwise a score above `COMPLEXITY_THRESHOLD` selects P1S and a score at or below it selects A1 Mini.
 
 Queue order within a printer is shortest estimated time first, then submission time. See `docs/printer_selection_algorithm.md` for routing and fallback details.
 
@@ -265,7 +265,7 @@ The dashboard has no remote font/runtime dependencies. Production Python depende
 
 ## 15. Health and observability
 
-`GET /api/health` reports database readiness, slicer readiness, curl availability when printers are enabled, and aggregate MQTT connection state. It also reports the explicit auth mode. `ok` means every required dependency is currently ready; otherwise it returns `degraded` in the body.
+`GET /api/health` reports database readiness, slicer readiness, curl availability when printers are enabled, the exact `enabled_printers` list, and aggregate MQTT state across enabled printers only. It also reports the explicit auth mode. `ok` means every required dependency and every enabled printer are currently ready; disabled hardware cannot make health degraded or be mistaken for an offline dispatch target.
 
 Application logs rotate at 10 MiB with five backups. Durable lifecycle events are stored in SQLite and shown by the dashboard. User-controlled text is normalized before logging and HTML-escaped in the frontend and email templates.
 
@@ -296,6 +296,6 @@ uvx bandit -q -r backend -x tests
 scripts/check_secrets.sh
 ```
 
-At reconciliation time, 49 tests, Ruff, dependency audit, Bandit, shell syntax, Python 3.12 verification, and the tracked/untracked secret-pattern check all pass.
+At reconciliation time, 55 tests, Ruff, shell syntax, Python 3.12 verification, diff validation, and the tracked/untracked secret-pattern check pass. Dependency audit and Bandit remain required release checks and were not rerun for the 2026-08-21 topology change.
 
-Hardware evidence proves the Ubuntu 24.04 ARM64 Pi installation, pinned identities, real Orca output for both printer profiles, dashboard/log compatibility, and one complete A1 Mini upload/start/print/`FINISH`/plate-clear cycle. It does not yet prove a physical P1S print, physical fallback, restart/failure injection, production-filesystem quota/restore drills, long-running load, authentication, or network exposure. See the prototype checkpoint for the ordered remaining work.
+Hardware evidence proves the original Ubuntu 24.04 ARM64 Pi installation, pinned identities at that time, real Orca output for both printer profiles, dashboard/log compatibility, and one complete A1 Mini upload/start/print/`FINISH`/plate-clear cycle. The replacement Pi and fresh P1S identity still require deployment verification. The broken A1 remains disabled until repaired. Evidence does not yet prove a physical P1S print, physical fallback, restart/failure injection, production-filesystem quota/restore drills, long-running load, authentication, or network exposure.

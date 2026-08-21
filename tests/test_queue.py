@@ -76,6 +76,16 @@ def test_missing_printer_client_fails_job_and_releases_slot():
     processor._slicer_executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_disabled_printer_never_dispatches_or_accepts_fallback(monkeypatch):
+    queued_job(PrinterID.A1_MINI)
+    monkeypatch.setattr(settings, "A1_MINI_ENABLED", False)
+    processor = QueueProcessor(FakeManager())
+    assert processor._try_dispatch(PrinterID.A1_MINI) is False
+    assert processor._try_schedule_fallback(PrinterID.A1_MINI) is False
+    processor._slicer_executor.shutdown(wait=False, cancel_futures=True)
+    processor._dispatch_executor.shutdown(wait=False, cancel_futures=True)
+
+
 def test_unconfirmed_start_blocks_printer_for_inspection():
     job_id = queued_job()
     error = PrintStartUnconfirmed("no running report")

@@ -7,11 +7,14 @@ import time
 import paho.mqtt.client as mqtt
 import pytest
 
+from backend.config import settings
 from backend.core.printer import (
     BambuPrinter,
     PrintStartRejected,
     PrintStartUnconfirmed,
 )
+from backend.core.printer_manager import PrinterManager
+from backend.db.models import PrinterID
 
 
 class PublishInfo:
@@ -53,6 +56,47 @@ def make_printer():
         lambda *_: None,
     )
     return printer
+
+
+def test_manager_constructs_and_connects_only_enabled_printers(monkeypatch):
+    created = []
+
+    class ManagedPrinter:
+        def __init__(self, **kwargs):
+            self.printer_id = kwargs["printer_id"]
+            self.ip = kwargs["ip"]
+            created.append(self.printer_id)
+
+        def connect(self):
+            return None
+
+        def disconnect(self):
+            return None
+
+        def snapshot(self):
+            return {
+                "status": "idle",
+                "gcode_state": "IDLE",
+                "progress": 0,
+                "nozzle_temp": 0,
+                "bed_temp": 0,
+                "connected": True,
+                "last_seen": None,
+            }
+
+    monkeypatch.setattr(settings, "PRINTERS_ENABLED", True)
+    monkeypatch.setattr(settings, "P1S_ENABLED", True)
+    monkeypatch.setattr(settings, "A1_MINI_ENABLED", False)
+    monkeypatch.setattr("backend.core.printer_manager.BambuPrinter", ManagedPrinter)
+    manager = PrinterManager()
+
+    manager.init()
+
+    assert created == [PrinterID.P1S]
+    assert manager.get_printer(PrinterID.P1S) is not None
+    assert manager.get_printer(PrinterID.A1_MINI) is None
+    assert manager.get_snapshot()[PrinterID.A1_MINI.value]["status"] == "disabled"
+    manager.shutdown()
 
 
 def test_publish_fails_closed_when_disconnected():

@@ -1,6 +1,6 @@
 # BambuBabu implementation plan and evidence
 
-Last reconciled: 2026-07-24. Live pause/resume details are in [prototype_status.md](prototype_status.md).
+Last reconciled: 2026-08-21. Live pause/resume details are in [prototype_status.md](prototype_status.md).
 
 This is a status document, not a wishlist. `Complete` means implemented and covered by local automated checks. `Deployment validation` means code exists but still needs the target Pi or physical printers. Authentication remains deliberately deferred to the final host-integration phase.
 
@@ -33,6 +33,7 @@ Provide a safe local automation core for two Bambu Lab printers that can accept 
 | Restart reconciliation | Complete | safe CPU retry, handoff quarantine, printing ownership restore | controlled Pi restart tests |
 | Cancellation and plate races | Complete; A1 plate flow proven | cancellable-state CAS, retained files, plate/current-job invariants | cancellation race and ambiguous plate drills on Pi |
 | Cross-printer fallback | Complete in code; both slices proven | fit check, source-availability rule, reservation, compatible target re-slice, retry suppression | physical fallback exercise |
+| Per-printer maintenance isolation | Complete in code | independent enable gates across validation, transport, routing, health, API/UI, and regression tests | deploy P1S-only mode; reactivate A1 only after repair inspection |
 | Portable slicing | Complete; deployed | OS/architecture/Python guards, pinned artifact/checksum, full BBL tree, private workspaces, printable archive validation | repeat on a second fresh image/recovery install |
 | Logs API/UI | Complete; deployed | structured `/api/logs/all` array and escaped dashboard rendering | longer browser soak and error-state checks |
 | Upload/storage hardening | Complete | streaming limit, active/storage quotas, STL envelope validation, retention/orphans | tune quotas for production volume |
@@ -75,6 +76,7 @@ Physical rotation cannot be performed from this repository. Old codes must be ch
 - Protected cancellation from worker revival.
 - Added fallback reservation, bounding-box fit check, source-availability check, and mandatory target-profile re-slicing.
 - Returned a failed fallback slice to its original preferred queue and suppressed repeated fallback attempts for that job.
+- Added fail-closed per-printer enable gates. Disabled hardware cannot require placeholder credentials, affect health, receive a connection, be selected, dispatch, accept fallback, or expose unsafe operator actions.
 
 ### 4. Slicing and deployment
 
@@ -110,7 +112,7 @@ Physical rotation cannot be performed from this repository. Old codes must be ch
 
 ## Automated acceptance evidence
 
-The current local suite has 49 tests covering:
+The current local suite has 55 tests covering:
 
 - API upload success and invalid inputs;
 - byte limit, active queue quota, and response PII removal;
@@ -123,6 +125,7 @@ The current local suite has 49 tests covering:
 - deterministic handoff release and ambiguous handoff blocking;
 - restart state reconciliation;
 - preferred/fallback/no-steal routing;
+- P1S-only/A1-only selection, disabled-printer dispatch/fallback denial, and single-printer startup validation;
 - compatible P1S profile selection, private Orca workspaces, and printable 3MF validation;
 - identity-map refresh after atomic transition and terminal-state graph enforcement;
 - confirmed finish and missing-finish quarantine;
@@ -140,7 +143,7 @@ scripts/check_secrets.sh
 test "$(.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = 3.12
 ```
 
-Current result: 49 tests, Ruff, dependency audit, Bandit, shell syntax, Python 3.12 verification, and the tracked/untracked secret-pattern check all pass. Rerun the same set before a release tag.
+Current result on 2026-08-21: 55 tests, Ruff, shell syntax, Python 3.12 verification, diff validation, and the tracked/untracked secret-pattern check pass. Dependency audit and Bandit were not rerun in this change and remain release checks.
 
 ## Hardware acceptance evidence
 
@@ -153,6 +156,8 @@ Observed on the target Raspberry Pi 5:
 - one A1 Mini job completed the full upload, start, physical print, `FINISH`, completed-state, and plate-clear workflow;
 - stale A1 `FAILED` state was recoverable only through explicit physical acknowledgement;
 - the P1S physical print, live fallback, and controlled fault/restart drills remain unproven.
+
+Current operational change: the original evidence remains valid historical evidence, but the A1 Mini is now physically broken and must be configured disabled. A replacement Pi installation is underway. Only the P1S will be connected and tested until the A1 is repaired and passes a new supervised canary.
 
 ## Final authentication phase contract
 

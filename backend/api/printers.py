@@ -15,6 +15,7 @@ from backend.db.session import get_db_dep
 from backend.db import crud
 from backend.db.models import Job, JobStatus, PrinterID, PrinterStatus
 from backend.core.logger import get_logger
+from backend.config import settings
 
 log = get_logger("bambubabu.api.printers")
 router = APIRouter(prefix="/api/printers", tags=["printers"])
@@ -42,6 +43,7 @@ def get_printers(db: Session = Depends(get_db_dep)):
         result.append(
             {
                 "printer_id": pid.value,
+                "enabled": settings.live_printer_enabled(pid.value),
                 "name": "Bambu Lab P1S"
                 if pid == PrinterID.P1S
                 else "Bambu Lab A1 Mini",
@@ -75,6 +77,8 @@ def mark_plate_cleared(
         )
 
     pid = PrinterID(printer_id)
+    if not settings.live_printer_enabled(pid.value):
+        raise HTTPException(409, "Printer is disabled in this deployment")
     state = crud.get_printer_state(db, pid)
 
     if not state:
@@ -136,6 +140,8 @@ def acknowledge_physically_idle(
     if printer_id not in VALID_PRINTER_IDS:
         raise HTTPException(400, f"Unknown printer: {printer_id}")
     pid = PrinterID(printer_id)
+    if not settings.live_printer_enabled(pid.value):
+        raise HTTPException(409, "Printer is disabled in this deployment")
     state = crud.get_printer_state(db, pid)
     if not state:
         raise HTTPException(404, "Printer state not found")

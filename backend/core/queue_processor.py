@@ -143,7 +143,12 @@ class QueueProcessor:
         for job_id in pending_ids:
             self._submit_slice(job_id, self._slice_pipeline)
 
-        for printer_id in (PrinterID.A1_MINI, PrinterID.P1S):
+        for printer_id in (
+            printer_id
+            for printer_id in (PrinterID.A1_MINI, PrinterID.P1S)
+            if settings.PRINTERS_ENABLED
+            and settings.printer_enabled(printer_id.value)
+        ):
             dispatched = self._try_dispatch(printer_id)
             if not dispatched:
                 self._try_schedule_fallback(printer_id)
@@ -294,6 +299,8 @@ class QueueProcessor:
                 self._slicing_jobs.discard(job_id)
 
     def _try_dispatch(self, printer_id: PrinterID) -> bool:
+        if not settings.printer_enabled(printer_id.value):
+            return False
         with SessionLocal.begin() as db:
             state = crud.get_printer_state(db, printer_id)
             if (
@@ -425,6 +432,8 @@ class QueueProcessor:
                     )
 
     def _try_schedule_fallback(self, target: PrinterID) -> bool:
+        if not settings.printer_enabled(target.value):
+            return False
         with SessionLocal.begin() as db:
             target_state = crud.get_printer_state(db, target)
             if (
@@ -457,7 +466,8 @@ class QueueProcessor:
                     continue
                 source_state = crud.get_printer_state(db, job.assigned_printer)
                 source_available = bool(
-                    source_state
+                    settings.printer_enabled(job.assigned_printer.value)
+                    and source_state
                     and source_state.status == PrinterStatus.IDLE
                     and source_state.plate_cleared
                     and not source_state.current_job_id

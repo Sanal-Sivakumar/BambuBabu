@@ -6,7 +6,7 @@ This repository contains a hardened local automation core. Authentication is int
 
 ## Current status
 
-Prototype checkpoint as of 2026-07-24: the Ubuntu 24.04 ARM64 Pi installation is working, both printer transports are connected, real Orca slicing is validated for both printer profiles, and one A1 Mini job completed successfully through physical plate clearance. The P1S physical print and the remaining failure/restart drills are still pending. See [docs/prototype_status.md](docs/prototype_status.md) before resuming.
+Prototype checkpoint as of 2026-08-21: a replacement Ubuntu 24.04 ARM64 Pi is being provisioned. The A1 Mini previously completed one full physical print/finish/plate-clear cycle but is now broken and must remain explicitly disabled. The P1S is the only live target for the next supervised acceptance test. Both Orca profiles and dual-printer routing remain in the product for reactivation after the A1 is repaired. See [docs/prototype_status.md](docs/prototype_status.md) before resuming.
 
 Implemented and covered by automated tests:
 
@@ -17,14 +17,15 @@ Implemented and covered by automated tests:
 - restart reconciliation for interrupted analysis, slicing, upload, start, and printing states;
 - fail-closed MQTT publish and start confirmation before a job becomes `printing`;
 - physical plate-clear tracking, ambiguous-state quarantine, and safe cross-printer re-slicing;
+- independent `P1S_ENABLED`/`A1_MINI_ENABLED` controls that exclude disabled hardware from validation, connection, routing, fallback, health, and operator actions;
 - structured database logs consumed directly by the dashboard;
 - SQLite WAL mode, busy timeout, consistent online backups, retention, and orphan cleanup;
 - a hash-locked Python environment and checksum-pinned OrcaSlicer installer for Ubuntu 24.04 ARM64;
-- 49 automated API, lifecycle, routing, printer-failure, and storage tests.
+- 55 automated API, lifecycle, routing, printer-failure, and storage tests.
 
 Still requiring prototype work:
 
-- deploy the queued completion-state update recorded in the prototype checkpoint;
+- deploy and verify the P1S-only configuration on the replacement Pi;
 - complete one controlled P1S physical print and cross-printer fallback exercise;
 - complete restart, disconnect, ambiguous-handoff, cancellation, quota, retention, and backup-restore drills;
 - add a deliberate manual dispatch approval/interlock for prototype testing;
@@ -86,7 +87,7 @@ The installer:
 
 The headless slicer prerequisites include `xvfb`, its `xauth` helper, and the `libopengl0`/`libglu1-mesa` runtime libraries; the health endpoint does not report slicing ready unless they are installed.
 
-4. On a trusted, isolated LAN, capture each printer identity immediately after rotating its access code:
+4. On a trusted, isolated LAN, capture each enabled printer identity immediately after rotating its access code:
 
 ```bash
 ./scripts/capture_printer_identity.sh <p1s-ip> /var/lib/bambubabu/certs/p1s-mqtt.pem
@@ -94,6 +95,8 @@ The headless slicer prerequisites include `xvfb`, its `xauth` helper, and the `l
 ```
 
 Each command prints an FTPS value beginning with `sha256//` and saves the complete MQTT certificate chain. Put the certificate path and printed pin into `.env`. This is trust-on-first-use: perform it only while you control the local network.
+
+For the current P1S-only prototype, run only the P1S command. Do not connect to or capture the broken A1 Mini until it has been repaired and physically inspected.
 
 5. Edit `.env` and replace every `replace_me` value:
 
@@ -104,6 +107,16 @@ nano .env
 
 Keep `HOST=127.0.0.1`, `AUTHENTICATION_MODE=external-pending`, and `MOCK_SLICER=false` for live operation.
 
+For the current supervised deployment also set:
+
+```text
+PRINTERS_ENABLED=true
+P1S_ENABLED=true
+A1_MINI_ENABLED=false
+```
+
+Disabled-printer credentials may remain as placeholders. Startup validates secrets and TLS identity only for enabled printers. At least one printer must be enabled in live mode.
+
 6. Validate that no credential-shaped value is tracked, then start the service:
 
 ```bash
@@ -113,7 +126,7 @@ sudo systemctl status bambubabu
 curl http://127.0.0.1:8000/api/health
 ```
 
-The health response is `degraded` until the database, slicer, curl, and both live MQTT connections are ready.
+The health response is `degraded` until the database, slicer, curl, and every enabled live MQTT connection are ready. It includes `enabled_printers`; in the current deployment that list must be exactly `["p1s"]`.
 
 ## Development without printers
 
@@ -152,7 +165,7 @@ Completed jobs, printer-reported failures, and ambiguous handoffs retain the pri
 
 ## Routing
 
-Objects larger than 256 x 256 x 256 mm are rejected. Objects that do not fit the A1 Mini's 180 x 180 x 180 mm volume are assigned to the P1S. Remaining objects go to the P1S when their complexity score exceeds `COMPLEXITY_THRESHOLD`; otherwise the A1 Mini is preferred.
+Disabled printers are never selected or used as fallback targets. In P1S-only mode, every model that fits the P1S volume is assigned to P1S. With both printers enabled, objects larger than 256 x 256 x 256 mm are rejected; objects that do not fit the A1 Mini's 180 x 180 x 180 mm volume are assigned to the P1S; remaining objects go to the P1S when their complexity score exceeds `COMPLEXITY_THRESHOLD`, otherwise the A1 Mini is preferred.
 
 If the preferred printer is unavailable and the other printer is idle, cleared, and large enough, BambuBabu re-slices the original STL for the other printer before dispatch. It never sends a file sliced for one printer to the other. See [docs/printer_selection_algorithm.md](docs/printer_selection_algorithm.md).
 

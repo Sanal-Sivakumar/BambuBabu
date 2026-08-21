@@ -25,8 +25,9 @@ class PrinterManager:
             self._initialized = True
             return
 
-        self._printers = {
-            PrinterID.P1S: BambuPrinter(
+        self._printers = {}
+        if settings.printer_enabled(PrinterID.P1S.value):
+            self._printers[PrinterID.P1S] = BambuPrinter(
                 printer_id=PrinterID.P1S,
                 ip=settings.P1S_IP,
                 serial=settings.P1S_SERIAL,
@@ -34,8 +35,9 @@ class PrinterManager:
                 mqtt_cert_path=settings.printer_mqtt_cert_path("p1s"),
                 ftps_pin=settings.printer_ftps_pin("p1s"),
                 on_status_update=self._on_status_update,
-            ),
-            PrinterID.A1_MINI: BambuPrinter(
+            )
+        if settings.printer_enabled(PrinterID.A1_MINI.value):
+            self._printers[PrinterID.A1_MINI] = BambuPrinter(
                 printer_id=PrinterID.A1_MINI,
                 ip=settings.A1_MINI_IP,
                 serial=settings.A1_MINI_SERIAL,
@@ -43,8 +45,7 @@ class PrinterManager:
                 mqtt_cert_path=settings.printer_mqtt_cert_path("a1_mini"),
                 ftps_pin=settings.printer_ftps_pin("a1_mini"),
                 on_status_update=self._on_status_update,
-            ),
-        }
+            )
         for printer_id, printer in self._printers.items():
             log.info(f"Connecting to {printer_id.value} at {printer.ip}")
             printer.connect()
@@ -74,8 +75,12 @@ class PrinterManager:
                 printer.snapshot()
                 if printer
                 else {
-                    "status": "offline",
-                    "gcode_state": "OFFLINE",
+                    "status": "disabled"
+                    if not settings.live_printer_enabled(printer_id.value)
+                    else "offline",
+                    "gcode_state": "DISABLED"
+                    if not settings.live_printer_enabled(printer_id.value)
+                    else "OFFLINE",
                     "progress": 0,
                     "nozzle_temp": 0,
                     "bed_temp": 0,
@@ -83,7 +88,11 @@ class PrinterManager:
                     "last_seen": None,
                 }
             )
-            snapshot[printer_id.value] = {"printer_id": printer_id.value, **data}
+            snapshot[printer_id.value] = {
+                "printer_id": printer_id.value,
+                "enabled": settings.live_printer_enabled(printer_id.value),
+                **data,
+            }
         return snapshot
 
     def _on_status_update(self, printer_id: str, snapshot: dict) -> None:

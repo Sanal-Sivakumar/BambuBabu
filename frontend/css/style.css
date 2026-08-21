@@ -526,6 +526,11 @@ body {
   font-weight: 700;
   text-transform: uppercase;
 }
+.printer-status-badge.s-disabled {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
 
 .printer-stats {
   display: grid;

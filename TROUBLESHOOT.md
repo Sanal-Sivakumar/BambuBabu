@@ -1,6 +1,6 @@
 # BambuBabu troubleshooting
 
-Last reconciled with the code and target Pi: 2026-07-24.
+Last reconciled with the code and target Pi plan: 2026-08-21.
 
 If resuming after the first successful A1 Mini prototype print, follow [docs/prototype_status.md](docs/prototype_status.md) before uploading another model.
 
@@ -18,13 +18,23 @@ Do not paste `.env`, access codes, serial numbers, captured certificates, SMTP c
 
 ### Placeholder or missing live values
 
-Live mode intentionally refuses incomplete configuration. Replace every printer value in `.env`, including:
+Live mode intentionally refuses incomplete configuration. For each enabled printer, provide:
 
 - private LAN IP;
 - serial number;
 - newly rotated access code;
 - captured MQTT certificate path;
 - FTPS `sha256//` public-key pin.
+
+For the current P1S-only deployment use:
+
+```text
+PRINTERS_ENABLED=true
+P1S_ENABLED=true
+A1_MINI_ENABLED=false
+```
+
+Do not invent A1 values or copy stale A1 credentials merely to satisfy startup. If both per-printer flags are false while live mode is enabled, startup intentionally fails. A disabled printer is displayed as `disabled`, is excluded from health, and cannot receive dispatch, fallback, plate-clear, or idle-acknowledgement actions.
 
 Check file permissions without printing its contents:
 

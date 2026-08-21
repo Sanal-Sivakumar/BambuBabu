@@ -66,7 +66,10 @@ app.include_router(logs.router)
 @app.get("/api/health")
 def health():
     live = printer_manager.get_snapshot()
-    printers_connected = all(item["connected"] for item in live.values())
+    enabled_live = [item for item in live.values() if item.get("enabled")]
+    printers_connected = bool(enabled_live) and all(
+        item["connected"] for item in enabled_live
+    )
     slicer_ready = settings.MOCK_SLICER or (
         settings.ORCA_SLICER_PATH.is_file()
         and settings.SLICER_PROFILES_DIR.is_dir()
@@ -88,6 +91,7 @@ def health():
         "version": "1.1.0",
         "mock_slicer": settings.MOCK_SLICER,
         "authentication": settings.AUTHENTICATION_MODE,
+        "enabled_printers": list(settings.enabled_printer_ids),
         "checks": checks,
     }
 

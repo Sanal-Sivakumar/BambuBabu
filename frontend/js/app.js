@@ -286,7 +286,7 @@ function updateQueueBadge() {
 function renderPrinters(printers) {
   const grid = document.getElementById("printer-grid");
   const alert = document.getElementById("plate-alert");
-  const anyNeedsClearing = printers.some(p => !p.plate_cleared);
+  const anyNeedsClearing = printers.some(p => p.enabled && !p.plate_cleared);
 
   if (anyNeedsClearing) {
     alert.classList.remove("hidden");
@@ -310,7 +310,8 @@ function renderPrinters(printers) {
 }
 
 function printerCard(p) {
-  const needsClear = !p.plate_cleared;
+  const enabled = p.enabled !== false;
+  const needsClear = enabled && !p.plate_cleared;
   const isOnline   = p.connected;
 
   const progress = p.status === "printing"
@@ -330,7 +331,7 @@ function printerCard(p) {
        </div>`
     : "";
 
-  const idleAcknowledgeSection = p.connected && p.status === "error" &&
+  const idleAcknowledgeSection = enabled && p.connected && p.status === "error" &&
       p.gcode_state === "FAILED" && !p.current_job_id && p.plate_cleared
     ? `<div class="plate-btn-wrap">
          <button class="plate-clear-btn" id="idle-btn-${p.printer_id}">
@@ -353,7 +354,7 @@ function printerCard(p) {
           ${currentJobHtml}
         </div>
         <span class="printer-status-badge s-${p.status}">
-          ${isOnline ? p.status : "offline"}
+          ${enabled ? (isOnline ? p.status : "offline") : "disabled"}
         </span>
       </div>
 
@@ -376,7 +377,7 @@ function printerCard(p) {
           <div class="stat-label">🔗 Connection</div>
           <div class="stat-value" style="font-size:14px;font-weight:600">
             <span style="color:${isOnline ? "var(--green)" : "var(--text-muted)"}">
-              ${isOnline ? "● Online" : "● Offline"}
+              ${enabled ? (isOnline ? "● Online" : "● Offline") : "○ Disabled"}
             </span>
           </div>
         </div>
@@ -384,7 +385,7 @@ function printerCard(p) {
           <div class="stat-label">🗑️ Plate</div>
           <div class="stat-value" style="font-size:14px;font-weight:600">
             <span style="color:${p.plate_cleared ? "var(--green)" : "var(--amber)"}">
-              ${p.plate_cleared ? "✅ Clear" : "⚠️ Needs Clear"}
+              ${enabled ? (p.plate_cleared ? "✅ Clear" : "⚠️ Needs Clear") : "— Not in service"}
             </span>
           </div>
         </div>
